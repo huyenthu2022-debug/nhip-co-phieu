@@ -5,7 +5,7 @@ on:
     - cron: "45 8 * * 1-5"
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 concurrency: { group: pages, cancel-in-progress: true }
@@ -19,6 +19,13 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install -r requirements.txt
       - run: python engine/build.py
+      - name: Lưu bản dữ liệu vào nhánh data
+        run: |
+          cd web/data
+          git init -q -b data
+          git add -A
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -qm "Dữ liệu $(date -u +%F)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" data
       - name: Đóng gói trang
         run: |
           mkdir -p _site/data
