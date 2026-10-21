@@ -81,6 +81,11 @@ h2 { font-family: var(--display); font-size: 17px; font-weight: 700; margin: 0; 
 .sector-row:last-child { border-bottom: 0; }
 .sector-row .nm { font-weight: 600; }
 .sector-row .tops { color: var(--muted); font-size: 12px; }
+.sector-row[data-sector] { cursor: pointer; }
+.sector-row[data-sector]:hover .nm { color: var(--accent); }
+.more { display: flex; justify-content: center; padding: 12px; }
+.ex-tag { font: 600 10px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; margin-left: 4px; vertical-align: 1px; }
+.filter-note { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: -4px 0 12px; font-size: 12.5px; color: var(--muted); }
 .bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
 
@@ -180,6 +185,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
     </div>
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="tongquan">Tổng quan</button>
+      <button role="tab" data-tab="nganh">Ngành</button>
       <button role="tab" data-tab="boloc">Bộ lọc</button>
       <button role="tab" data-tab="tinhieu">Tín hiệu</button>
       <button role="tab" data-tab="nhatky">Nhật ký giao dịch</button>
@@ -201,15 +207,21 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
         <div class="facts" id="mktFacts"></div>
       </div>
       <div class="panel">
-        <div class="section-head"><div><h2>Sức mạnh theo ngành</h2><p class="sub">Xếp theo điểm sức mạnh trung bình 0–10</p></div></div>
+        <div class="section-head"><div><h2>Ngành mạnh nhất</h2><p class="sub">Điểm sức mạnh trung bình 0–10. Bấm ngành để lọc cổ phiếu.</p></div><button class="btn" data-goto="nganh">Tất cả ngành</button></div>
         <div class="sector-list" id="sectorList"></div>
       </div>
     </div>
     <div class="panel" style="margin-top:20px">
-      <div class="section-head"><div><h2>Top cổ phiếu mạnh nhất</h2><p class="sub">10 mã có điểm sức mạnh cao nhất hôm nay. Bấm để xem biểu đồ.</p></div>
+      <div class="section-head"><div><h2>Top cổ phiếu mạnh nhất</h2><p class="sub" id="topSub">10 mã có điểm sức mạnh cao nhất hôm nay. Bấm để xem biểu đồ.</p></div>
         <button class="btn" data-goto="boloc">Mở bộ lọc đầy đủ</button></div>
       <div class="table-wrap" style="margin-top:12px"><table id="topTable"></table></div>
     </div>
+  </section>
+
+  <!-- NGÀNH -->
+  <section data-view="nganh" hidden>
+    <div class="section-head" style="margin-bottom:12px"><div><h2>Toàn thị trường theo ngành</h2><p class="sub" id="sectorSub"></p></div></div>
+    <div class="table-wrap"><table id="sectorTable"></table></div>
   </section>
 
   <!-- BỘ LỌC -->
@@ -224,19 +236,21 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
       </div>
     </div>
     <div class="filters">
-      <label>Mã<input type="search" id="fSym" placeholder="VD: FPT"></label>
+      <label>Mã hoặc tên<input type="search" id="fSym" placeholder="VD: FPT"></label>
+      <label>Sàn<select id="fEx"><option value="">Tất cả</option><option>HOSE</option><option>HNX</option><option>UPCOM</option></select></label>
       <label>Ngành<select id="fSector"><option value="">Tất cả</option></select></label>
+      <label>Ngành con<select id="fInd"><option value="">Tất cả</option></select></label>
       <label>Xu hướng ngắn<select id="fTs"><option value="">Tất cả</option><option>Tăng</option><option>Đi ngang</option><option>Giảm</option></select></label>
       <label>Xu hướng trung<select id="fTm"><option value="">Tất cả</option><option>Tăng</option><option>Đi ngang</option><option>Giảm</option></select></label>
       <label>Dòng tiền<select id="fFlow"><option value="">Tất cả</option><option>Vào mạnh</option><option>Vào</option><option>Trung tính</option><option>Ra</option><option>Ra mạnh</option></select></label>
       <label>Tín hiệu<select id="fSig"><option value="">Tất cả</option><option>MUA</option><option>NẮM GIỮ</option><option>BÁN</option></select></label>
       <label>RS tối thiểu<input type="number" id="fRs" min="1" max="99" value="1"></label>
       <label>Điểm tối thiểu<input type="number" id="fScore" min="0" max="10" step="0.5" value="0"></label>
-      <label>GTGD ≥ (tỷ)<input type="number" id="fVal" min="0" step="5" value="0"></label>
+      <label>GTGD ≥ (tỷ/phiên)<input type="number" id="fVal" min="0" step="1" value="1"></label>
       <label>P/E ≤<input type="number" id="fPe" min="0" step="1" value=""></label>
       <button class="btn" id="fReset">Xoá lọc</button>
     </div>
-    <div class="table-wrap"><table id="screenTable"></table></div>
+    <div class="table-wrap"><table id="screenTable"></table><div class="more" id="screenMore" hidden><button class="btn" id="moreBtn">Xem thêm</button></div></div>
   </section>
 
   <!-- TÍN HIỆU -->
@@ -263,9 +277,10 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
       <h2>Cách tính các chỉ số</h2>
       <p class="sub" style="margin-bottom:14px">Mọi chỉ số tính từ giá đóng cửa ngày, khối lượng và VN-Index. Quy tắc nằm trong <span class="mono">engine/indicators.py</span>, sửa ở đó là trang tự cập nhật lần chạy sau.</p>
       <div class="rules">
+        <p><b>Phạm vi.</b> Mọi cổ phiếu đang giao dịch trên HOSE, HNX và UPCoM có ít nhất 130 phiên lịch sử, chia theo ngành ICB cấp 2 (ngành) và cấp 3 (ngành con). Tín hiệu mua/bán và nhật ký chỉ tính cho mã có giá trị giao dịch trung bình 20 phiên từ 1 tỷ đồng, vì mã ít thanh khoản dễ cho tín hiệu giả.</p>
         <p><b>Xu hướng ngắn hạn.</b> Tăng khi giá trên EMA20 và EMA20 đi lên so với 5 phiên trước. Giảm khi ngược lại. Còn lại là đi ngang.</p>
         <p><b>Xu hướng trung hạn.</b> Tăng khi giá trên EMA50, EMA50 trên MA200 và EMA50 đi lên so với 10 phiên trước.</p>
-        <p><b>RS (sức mạnh tương đối) 1–99.</b> Hiệu suất có trọng số 40% quý gần nhất và 20% cho mỗi quý trước trong 12 tháng, rồi xếp hạng phần trăm trong danh sách theo dõi. RS 90 nghĩa là mạnh hơn 90% số mã còn lại. Dấu ↗ cạnh RS là đường giá/VN-Index đang ở đỉnh 3 tháng.</p>
+        <p><b>RS (sức mạnh tương đối) 1–99.</b> Hiệu suất có trọng số 40% quý gần nhất và 20% cho mỗi quý trước trong 12 tháng, rồi xếp hạng phần trăm trên toàn thị trường. RS 90 nghĩa là mạnh hơn 90% số mã còn lại. Dấu ↗ cạnh RS là đường giá/VN-Index đang ở đỉnh 3 tháng.</p>
         <p><b>Dòng tiền.</b> Dựa trên Chaikin Money Flow 20 phiên và khối lượng so với trung bình 20 phiên. Vào mạnh khi CMF &gt; 0,1 và khối lượng &gt; 1,3 lần trung bình.</p>
         <p><b>Động lượng đa khung (N / T / Th).</b> Trên khung ngày, tuần, tháng, mỗi khung được 0–3 điểm: giá trên EMA10, MACD histogram dương, RSI trên 50. Ô càng đậm càng mạnh.</p>
         <p><b>Điểm sức mạnh 0–10.</b> Xu hướng ngắn tối đa 1,5 · xu hướng trung 2 · RS 3 · dòng tiền 1,5 · động lượng đa khung 2.</p>
@@ -315,7 +330,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
     }).join("")}</span>`;
 
   /* ---------- Tabs ---------- */
-  const TABS = ["tongquan", "boloc", "tinhieu", "nhatky", "phuongphap"];
+  const TABS = ["tongquan", "nganh", "boloc", "tinhieu", "nhatky", "phuongphap"];
   function show(tab) {
     if (!TABS.includes(tab)) tab = "tongquan";
     $$("nav.tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
@@ -340,25 +355,43 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
       <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.8" vector-effect="non-scaling-stroke"/>
       <circle cx="${x(c.length - 1)}" cy="${y(c.at(-1))}" r="3.5" fill="var(--accent)"/>`;
     $("#mktFacts").innerHTML = [
+      ["Mã tăng / giảm", `<span class="up">${m.n_up}</span> / <span class="down">${m.n_down}</span>`, ""],
       ["Mã trên EMA50", m.breadth50 + "%", m.breadth50 >= 50 ? "up" : "down"],
       ["Tín hiệu MUA mới", m.n_buy, "up"],
       ["Đang nắm giữ", m.n_hold, ""],
       ["Tín hiệu BÁN", m.n_sell, "down"],
     ].map(([l, v, cl]) => `<div class="fact"><div class="label">${l}</div><div class="v ${cl}">${v}</div></div>`).join("");
     const maxS = 10;
-    $("#sectorList").innerHTML = D.sectors.map(s => `
-      <div class="sector-row">
-        <div><div class="nm">${s.name}</div><div class="tops">RS ${s.rs} · ${s.up}/${s.n} mã tăng trung hạn · <span class="mono">${s.top.join(" ")}</span></div></div>
+    $("#sectorList").innerHTML = D.sectors.slice(0, 8).map(s => `
+      <div class="sector-row" data-sector="${s.name}">
+        <div><div class="nm">${s.name}</div><div class="tops">${s.n} mã · RS ${s.rs} · ${s.up}/${s.base} tăng trung hạn · <span class="mono">${s.top.join(" ")}</span></div></div>
         <div class="bar"><i style="width:${s.score / maxS * 100}%;background:${scoreColor(s.score)}"></i></div>
         <div class="num" style="text-align:right">${fmt(s.score, 1)}</div>
       </div>`).join("");
-    renderTable($("#topTable"), D.stocks.slice(0, 10), { sortable: false });
+    renderTable($("#topTable"), D.stocks.filter(s => s.value_bn >= D.min_value_bn).slice(0, 10), { sortable: false });
+    $("#topSub").textContent = `10 mã điểm cao nhất trong số mã có GTGD từ ${fmt(D.min_value_bn, 0)} tỷ/phiên. Bấm để xem biểu đồ.`;
+  }
+
+  /* ---------- Ngành ---------- */
+  function renderSectors() {
+    const ex = D.by_exchange || {};
+    $("#sectorSub").textContent = `${D.stocks.length} cổ phiếu (${Object.entries(ex).map(([k, v]) => `${k} ${v}`).join(", ")}) chia theo ${D.sectors.length} ngành ICB. Điểm và RS trung bình chỉ tính mã có GTGD từ ${fmt(D.min_value_bn, 0)} tỷ/phiên. Bấm một ngành để xem các mã.`;
+    $("#sectorTable").innerHTML = `<thead><tr><th>Ngành</th><th class="n">Số mã</th><th class="n">Điểm TB</th><th class="n">RS TB</th><th class="n">Tăng trung hạn</th><th class="n">20 phiên</th><th class="n">MUA mới</th><th class="n">GTGD tỷ</th><th>Mạnh nhất</th></tr></thead>
+      <tbody>${D.sectors.map(s => `<tr data-sector="${s.name}">
+        <td><b>${s.name}</b>${s.subs.some(x => x !== s.name) ? `<div class="sub">${s.subs.slice(0, 4).join(" · ")}${s.subs.length > 4 ? " …" : ""}</div>` : ""}</td>
+        <td class="n">${s.n}</td><td class="n">${scoreHtml(s.score)}</td><td class="n">${s.rs}</td>
+        <td class="n">${s.up}/${s.base}</td><td class="n ${s.chg20 >= 0 ? "up" : "down"}">${pct(s.chg20, 1)}</td>
+        <td class="n">${s.n_buy || "–"}</td><td class="n">${fmt(s.value_bn, 0)}</td><td class="mono">${s.top.join(" ")}</td></tr>`).join("")}</tbody>`;
+  }
+  function filterSector(name) {
+    resetF(); activePreset = null; $$("#presets .chip").forEach(c => c.setAttribute("aria-pressed", false));
+    $("#fSector").value = name; fillInd(); renderScreener(); show("boloc");
   }
 
   /* ---------- Bảng cổ phiếu ---------- */
   const COLS = [
-    { k: "sym", t: "Mã", r: s => `<button class="star" data-star="${s.sym}" aria-pressed="${watch.has(s.sym)}" aria-label="Theo dõi ${s.sym}">★</button>${s.sym}`, cls: "sym" },
-    { k: "sector", t: "Ngành", r: s => `<span class="sub">${s.sector}</span>` },
+    { k: "sym", t: "Mã", r: s => `<button class="star" data-star="${s.sym}" aria-pressed="${watch.has(s.sym)}" aria-label="Theo dõi ${s.sym}">★</button>${s.sym}<span class="ex-tag">${s.ex || ""}</span>`, cls: "sym" },
+    { k: "sector", t: "Ngành", r: s => `<span class="sub" title="${s.sector}">${s.ind || s.sector}</span>` },
     { k: "price", t: "Giá", n: 1, r: s => `<span class="${chgCls(s.chg)}">${fmt(s.price)}</span>` },
     { k: "chg", t: "%", n: 1, r: s => `<span class="${chgCls(s.chg)}">${pct(s.chg)}</span>` },
     { k: "chg20", t: "20 phiên", n: 1, r: s => `<span class="${s.chg20 > 0 ? "up" : s.chg20 < 0 ? "down" : "ref"}">${pct(s.chg20, 1)}</span>` },
@@ -386,12 +419,14 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
         return sort.dir === "asc" ? r : -r;
       });
     }
+    const total = rows.length;
+    if (sortable) { rows = rows.slice(0, shown); $("#screenMore").hidden = total <= shown; $("#moreBtn").textContent = `Xem thêm (còn ${total - shown} mã)`; }
     table.innerHTML = `<thead><tr>${COLS.map(c => `<th class="${c.n ? "n" : ""}" data-k="${c.k}" ${sortable && sort.k === c.k ? `data-dir="${sort.dir}"` : ""}>${c.t}</th>`).join("")}</tr></thead>
       <tbody>${rows.length ? rows.map(s => `<tr data-sym="${s.sym}">${COLS.map(c => `<td class="${c.n ? "n" : ""} ${c.cls || ""}">${c.r(s)}</td>`).join("")}</tr>`).join("")
         : `<tr><td colspan="${COLS.length}" class="empty">Không có mã nào khớp bộ lọc. Thử nới điều kiện hoặc bấm Xoá lọc.</td></tr>`}</tbody>`;
     if (sortable) $$("th", table).forEach(th => th.addEventListener("click", () => {
       sort = { k: th.dataset.k, dir: sort.k === th.dataset.k && sort.dir === "desc" ? "asc" : "desc" };
-      store.set("sort", sort); renderScreener();
+      store.set("sort", sort); renderScreener(true);
     }));
   }
 
@@ -406,19 +441,32 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
       if (activePreset === "watch") renderScreener();
       return;
     }
+    const sa = e.target.closest("[data-sigall]");
+    if (sa) { resetF(); activePreset = null; $("#fSig").value = sa.dataset.sigall; renderScreener(); show("boloc"); return; }
+    const sec = e.target.closest("[data-sector]");
+    if (sec) { filterSector(sec.dataset.sector); return; }
     const row = e.target.closest("tr[data-sym], .sig-card[data-sym]");
     if (row) openDetail(row.dataset.sym);
   });
 
   /* ---------- Bộ lọc ---------- */
-  const F = { sym: "#fSym", sector: "#fSector", ts: "#fTs", tm: "#fTm", flow: "#fFlow", sig: "#fSig", rs: "#fRs", score: "#fScore", val: "#fVal", pe: "#fPe" };
+  const F = { sym: "#fSym", ex: "#fEx", sector: "#fSector", ind: "#fInd", ts: "#fTs", tm: "#fTm", flow: "#fFlow", sig: "#fSig", rs: "#fRs", score: "#fScore", val: "#fVal", pe: "#fPe" };
   let activePreset = null;
   function readF() { const o = {}; for (const k in F) o[k] = $(F[k]).value.trim(); return o; }
-  function renderScreener() {
-    const f = readF();
+  const PAGE = 100;
+  let shown = PAGE, lastRows = [];
+  function fillInd() {
+    const sec = D.sectors.find(x => x.name === $("#fSector").value);
+    const keep = $("#fInd").value;
+    $("#fInd").innerHTML = '<option value="">Tất cả</option>' + (sec ? sec.subs.map(n => `<option>${n}</option>`).join("") : "");
+    $("#fInd").value = sec && sec.subs.includes(keep) ? keep : "";
+  }
+  function renderScreener(keepPage) {
+    if (!keepPage) shown = PAGE;
+    const f = readF(), q = f.sym.toUpperCase(), ql = f.sym.toLowerCase();
     const rows = D.stocks.filter(s =>
-      (!f.sym || s.sym.includes(f.sym.toUpperCase())) &&
-      (!f.sector || s.sector === f.sector) && (!f.ts || s.trend_s === f.ts) && (!f.tm || s.trend_m === f.tm) &&
+      (!q || s.sym.includes(q) || (s.name || "").toLowerCase().includes(ql)) &&
+      (!f.ex || s.ex === f.ex) && (!f.sector || s.sector === f.sector) && (!f.ind || s.ind === f.ind) && (!f.ts || s.trend_s === f.ts) && (!f.tm || s.trend_m === f.tm) &&
       (!f.flow || s.flow === f.flow) && (!f.sig || s.signal === f.sig) &&
       (s.rs ?? 0) >= (+f.rs || 0) && s.score >= (+f.score || 0) && (s.value_bn ?? 0) >= (+f.val || 0) &&
       (!f.pe || (s.pe != null && s.pe > 0 && s.pe <= +f.pe)) &&
@@ -426,10 +474,11 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
       (activePreset !== "value" || (s.roe ?? 0) >= 15) &&
       (activePreset !== "watch" || watch.has(s.sym)));
     $("#screenCount").textContent = `${rows.length} / ${D.stocks.length} mã khớp điều kiện`;
+    lastRows = rows;
     renderTable($("#screenTable"), rows);
     store.set("filters", { f, activePreset });
   }
-  function resetF() { for (const k in F) $(F[k]).value = { rs: "1", score: "0", val: "0" }[k] ?? ""; }
+  function resetF() { for (const k in F) $(F[k]).value = { rs: "1", score: "0", val: String(D.min_value_bn ?? 0) }[k] ?? ""; fillInd(); }
   const PRESETS = {
     leaders: () => { $("#fRs").value = 80; $("#fScore").value = 7; },
     flow: () => {},
@@ -444,7 +493,9 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
     $$("#presets .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.preset === activePreset));
     renderScreener();
   }));
-  Object.values(F).forEach(sel => $(sel).addEventListener("input", renderScreener));
+  Object.values(F).forEach(sel => $(sel).addEventListener("input", () => renderScreener()));
+  $("#fSector").addEventListener("input", () => { fillInd(); renderScreener(); });
+  $("#moreBtn").addEventListener("click", () => { shown += PAGE; renderScreener(true); });
   $("#fReset").addEventListener("click", () => { resetF(); activePreset = null; $$("#presets .chip").forEach(c => c.setAttribute("aria-pressed", false)); renderScreener(); });
 
   /* ---------- Tín hiệu ---------- */
@@ -460,7 +511,8 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
     ];
     $("#sigGroups").innerHTML = groups.map(([k, title, desc]) => {
       const rows = D.stocks.filter(s => s.signal === k);
-      const cards = rows.map(s => {
+      const CAP = 60;
+      const cards = rows.slice(0, CAP).map(s => {
         const g = s.sig;
         if (k === "BÁN") return `<div class="sig-card" data-sym="${s.sym}">
             <div class="hd"><span class="tk">${s.sym}</span>${sigPill(k)}</div>
@@ -479,7 +531,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
             <div class="sig-meta">Giá ${fmt(s.price)} · từ ${g.date} (${g.age} phiên) · RS ${s.rs} · điểm ${fmt(s.score, 1)} · ${s.sector}</div></div>`;
       }).join("");
       return `<div><div class="group-title"><h2>${title}</h2><span class="sub">${rows.length} mã · ${desc}</span></div>
-        ${rows.length ? `<div class="sig-grid">${cards}</div>` : `<div class="panel empty">Chưa có mã nào ở nhóm này hôm nay.</div>`}</div>`;
+        ${rows.length ? `<div class="sig-grid">${cards}</div>${rows.length > CAP ? `<div class="more"><button class="btn" data-sigall="${k}">Xem cả ${rows.length} mã trong Bộ lọc</button></div>` : ""}` : `<div class="panel empty">Chưa có mã nào ở nhóm này hôm nay.</div>`}</div>`;
     }).join("");
   }
 
@@ -487,7 +539,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
   function renderJournal() {
     const j = D.journal;
     if (!j.n) { $("#jrStats").innerHTML = '<div class="panel empty">Chưa có lệnh nào trong lịch sử.</div>'; return; }
-    $("#jrSub").textContent = `${j.n} lệnh trên ${D.stocks.length} mã, từ ${j.from} (${fmt(j.years, 1)} năm)`;
+    $("#jrSub").textContent = `${j.n} lệnh trên ${j.n_stocks ?? D.stocks.length} mã có GTGD từ ${fmt(D.min_value_bn, 0)} tỷ/phiên, từ ${j.from} (${fmt(j.years, 1)} năm)`;
     $("#jrStats").innerHTML = [
       ["Tỉ lệ thắng", fmt(j.win_rate, 1) + "%", ""],
       ["Lãi TB lệnh thắng", pct(j.avg_win, 1), "up"],
@@ -514,8 +566,8 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
     $("#drawer").innerHTML = `
       <div class="d-head"><span class="tk">${s.sym}</span><span class="num ${chgCls(s.chg)}" style="font-size:18px">${fmt(s.price)} ${pct(s.chg)}</span>${sigPill(s.signal)}
         <button class="btn close" id="dClose">Đóng</button></div>
-      <div class="sub" style="margin-top:-10px">${s.sector} · giá nghìn đồng · nến ngày ${D.stocks[0].chart.d.length} phiên gần nhất</div>
-      <div id="chart"></div>
+      <div class="sub" style="margin-top:-10px">${s.name ? s.name + " · " : ""}${s.ex || ""} · ${s.sector}${s.ind && s.ind !== s.sector ? " / " + s.ind : ""} · giá nghìn đồng</div>
+      <div id="chart"><div class="empty">Đang tải biểu đồ…</div></div>
       <div class="sub">Đường xanh dương EMA20, đường cam EMA50. Mũi tên ▲ là điểm mua, ▼ là điểm bán của hệ thống.</div>
       <div class="kv">
         <div><div class="label">Điểm sức mạnh</div><div class="v">${scoreHtml(s.score)}</div></div>
@@ -541,10 +593,17 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
   $("#drawerBg").addEventListener("click", closeDetail);
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#drawer").hidden) closeDetail(); });
 
+  const chartCache = {};
   function drawChart(s) {
     const el = $("#chart");
     if (!window.LightweightCharts) { el.innerHTML = '<div class="empty">Không tải được thư viện biểu đồ.</div>'; return; }
-    const c = s.chart, up = cssVar("--up"), down = cssVar("--down");
+    const got = chartCache[s.sym] || (chartCache[s.sym] = fetch(`data/charts/${s.sym}.json`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }));
+    got.then(c => { if ($("#chart") === el && !$("#drawer").hidden) { el.innerHTML = ""; paintChart(el, s, c); } })
+       .catch(() => { delete chartCache[s.sym]; el.innerHTML = '<div class="empty">Không tải được biểu đồ của mã này.</div>'; });
+  }
+  function paintChart(el, s, c) {
+    if (chart) { chart.remove(); chart = null; }
+    const up = cssVar("--up"), down = cssVar("--down");
     chart = LightweightCharts.createChart(el, {
       autoSize: true,
       layout: { background: { color: cssVar("--surface") }, textColor: cssVar("--muted"), fontFamily: "IBM Plex Mono, monospace", fontSize: 11 },
@@ -573,12 +632,13 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
   fetch("data/signals.json").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(data => {
     D = data;
     $("#asof").innerHTML = `Dữ liệu đến phiên <b class="mono">${D.as_of}</b>`;
-    $("#genAt").textContent = `Cập nhật lúc ${D.generated}. ${D.stocks.length} mã theo dõi.`;
+    $("#genAt").textContent = `Cập nhật lúc ${D.generated}. ${D.stocks.length} cổ phiếu trên HOSE, HNX và UPCoM.`;
     $("#demoBand").hidden = !D.demo;
     $("#fSector").innerHTML += D.sectors.map(s => `<option>${s.name}</option>`).join("");
+    resetF();
     const saved = store.get("filters", null);
-    if (saved) { for (const k in F) if (saved.f[k] != null) $(F[k]).value = saved.f[k]; activePreset = saved.activePreset; $$("#presets .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.preset === activePreset)); }
-    renderOverview(); renderScreener(); renderSignals(); renderJournal();
+    if (saved) { $("#fSector").value = saved.f.sector ?? ""; fillInd(); for (const k in F) if (saved.f[k] != null) $(F[k]).value = saved.f[k]; activePreset = saved.activePreset; $$("#presets .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.preset === activePreset)); }
+    renderOverview(); renderSectors(); renderScreener(); renderSignals(); renderJournal();
     const h = location.hash.slice(1);
     show(TABS.includes(h) ? h : store.get("tab", "tongquan"));
   }).catch(err => {

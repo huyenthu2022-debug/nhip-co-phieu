@@ -1,25 +1,26 @@
-"""Danh sách mã theo dõi và ngành. Sửa tự do để mở rộng."""
-
-UNIVERSE = {
-    "Ngân hàng": ["VCB", "BID", "CTG", "TCB", "MBB", "VPB", "ACB", "HDB", "STB", "TPB", "SHB", "VIB"],
-    "Bất động sản": ["VHM", "VIC", "VRE", "NVL", "KDH", "DXG", "NLG", "PDR", "KBC"],
-    "Chứng khoán": ["SSI", "VND", "HCM", "VCI", "SHS"],
-    "Thép & vật liệu": ["HPG", "HSG", "NKG", "DGC"],
-    "Bán lẻ & tiêu dùng": ["MWG", "PNJ", "MSN", "VNM", "SAB", "FRT", "DGW"],
-    "Công nghệ": ["FPT", "CMG"],
-    "Năng lượng": ["GAS", "PLX", "POW", "PVD", "PVS", "BSR"],
-    "Công nghiệp & logistics": ["GVR", "VJC", "HVN", "GMD", "REE", "BCM"],
-}
+"""Danh sách mã. Bản đầy đủ lấy tự động từ sources.listing(); danh sách dưới đây
+chỉ dùng khi không lấy được danh sách trực tuyến và cho chế độ --demo."""
 
 INDEX = "VNINDEX"
 
+FALLBACK = {
+    "Ngân hàng": ["VCB", "BID", "CTG", "TCB", "MBB", "VPB", "ACB", "HDB", "STB", "TPB", "SHB", "VIB"],
+    "Bất động sản": ["VHM", "VIC", "VRE", "NVL", "KDH", "DXG", "NLG", "PDR", "KBC"],
+    "Dịch vụ tài chính": ["SSI", "VND", "HCM", "VCI", "SHS"],
+    "Tài nguyên cơ bản": ["HPG", "HSG", "NKG"],
+    "Hóa chất": ["DGC"],
+    "Bán lẻ": ["MWG", "PNJ", "FRT", "DGW"],
+    "Thực phẩm và đồ uống": ["MSN", "VNM", "SAB"],
+    "Công nghệ Thông tin": ["FPT", "CMG"],
+    "Dầu khí": ["GAS", "PLX", "PVD", "PVS", "BSR"],
+    "Điện, nước & xăng dầu khí đốt": ["POW", "REE"],
+    "Hàng & Dịch vụ Công nghiệp": ["GVR", "GMD", "BCM"],
+    "Du lịch và Giải trí": ["VJC", "HVN"],
+}
+FALLBACK_EXCHANGE = {s: "HOSE" for syms in FALLBACK.values() for s in syms}
+FALLBACK_EXCHANGE.update({"SHS": "HNX", "PVS": "HNX", "BSR": "UPCOM"})
 
-def all_symbols():
-    return [s for syms in UNIVERSE.values() for s in syms]
 
-
-def sector_of(symbol):
-    for sector, syms in UNIVERSE.items():
-        if symbol in syms:
-            return sector
-    return "Khác"
+def fallback_listing():
+    return [{"sym": s, "exchange": FALLBACK_EXCHANGE[s], "sector": sec, "industry": sec, "name": ""}
+            for sec, syms in FALLBACK.items() for s in syms]

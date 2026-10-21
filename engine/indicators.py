@@ -137,22 +137,17 @@ def core_score(ts, tm, rs, cmf_v, vol_ratio, mtf):
     return round(min(s, 10), 1)
 
 
-def buy_setup(df, i):
-    """Điều kiện mua: phá đỉnh 20 phiên, kèm khối lượng, trong xu hướng tăng."""
-    r = df.iloc[i]
-    return bool(
-        r["close"] > r["hh20"]
-        and r["volume"] > 1.3 * r["vol20"]
-        and r["close"] > r["ema50"]
-        and r["ema20"] > r["ema50"]
-        and r["rsi"] < 80
-    )
+def setups(df):
+    """Mảng boolean điều kiện mua/bán cho từng phiên (tính một lần cho nhanh).
 
-
-def sell_setup(df, i):
-    """Điều kiện bán chủ động: đóng cửa dưới EMA20 và MACD hist chuyển âm."""
-    r, p = df.iloc[i], df.iloc[i - 1]
-    return bool(r["close"] < r["ema20"] and r["macdh"] < 0 and p["macdh"] >= 0)
+    Mua: phá đỉnh 20 phiên, khối lượng > 1,3 lần TB20, giá trên EMA50, EMA20 trên EMA50, RSI < 80.
+    Bán chủ động: đóng cửa dưới EMA20 và MACD hist vừa chuyển âm.
+    """
+    c = df["close"]
+    buy = (c > df["hh20"]) & (df["volume"] > 1.3 * df["vol20"]) & (c > df["ema50"]) \
+        & (df["ema20"] > df["ema50"]) & (df["rsi"] < 80)
+    sell = (c < df["ema20"]) & (df["macdh"] < 0) & (df["macdh"].shift() >= 0)
+    return buy.fillna(False).to_numpy(), sell.fillna(False).to_numpy()
 
 
 def backtest(df, start=60):
@@ -161,38 +156,32 @@ def backtest(df, start=60):
     Quản lý lệnh: dừng lỗ = giá vào - 2*ATR; T1 = +1.5R thì dời dừng lỗ về giá vào;
     T2 = +3R chốt toàn bộ; hoặc thoát khi có tín hiệu bán. Tôn trọng T+2.
     """
+    buy, sell = setups(df)
+    close, high, low, atr_ = (df[k].to_numpy() for k in ("close", "high", "low", "atr"))
+    idx = df.index
     trades, pos = [], None
     for i in range(start, len(df)):
-        r = df.iloc[i]
-        day = df.index[i]
         if pos is None:
-            if buy_setup(df, i):
-                entry = float(r["close"])
-                risk = 2 * float(r["atr"])
-                pos = {
-                    "entry_date": day, "entry_i": i, "entry": entry,
-                    "stop": entry - risk, "t1": entry + 1.5 * risk, "t2": entry + 3 * risk,
-                    "t1_hit": False,
-                }
+            if buy[i]:
+                entry, risk = float(close[i]), 2 * float(atr_[i])
+                pos = {"entry_date": idx[i], "entry_i": i, "entry": entry, "stop": entry - risk,
+                       "t1": entry + 1.5 * risk, "t2": entry + 3 * risk, "t1_hit": False}
             continue
         if i - pos["entry_i"] < MIN_HOLD_SESSIONS:
             continue
         exit_px, reason = None, None
-        if r["low"] <= pos["stop"]:
+        if low[i] <= pos["stop"]:
             exit_px, reason = pos["stop"], "Dừng lỗ" if not pos["t1_hit"] else "Hoà vốn sau T1"
-        elif r["high"] >= pos["t2"]:
+        elif high[i] >= pos["t2"]:
             exit_px, reason = pos["t2"], "Đạt T2"
-        elif sell_setup(df, i):
-            exit_px, reason = float(r["close"]), "Tín hiệu bán"
-        if not pos["t1_hit"] and r["high"] >= pos["t1"]:
+        elif sell[i]:
+            exit_px, reason = float(close[i]), "Tín hiệu bán"
+        if not pos["t1_hit"] and high[i] >= pos["t1"]:
             pos["t1_hit"] = True
             pos["stop"] = max(pos["stop"], pos["entry"])
         if exit_px is not None:
-            trades.append({
-                "entry_date": pos["entry_date"], "exit_date": day,
-                "entry": pos["entry"], "exit": float(exit_px),
-                "ret": float(exit_px) / pos["entry"] - 1, "reason": reason,
-                "days": i - pos["entry_i"],
-            })
+            trades.append({"entry_date": pos["entry_date"], "exit_date": idx[i], "entry": pos["entry"],
+                           "exit": float(exit_px), "ret": float(exit_px) / pos["entry"] - 1,
+                           "reason": reason, "days": i - pos["entry_i"]})
             pos = None
     return trades, pos
