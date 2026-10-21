@@ -84,67 +84,57 @@ VCI_HEADERS = {"Referer": "https://trading.vietcap.com.vn/", "Origin": "https://
 BOARD = {"HSX": "HOSE", "HOSE": "HOSE", "HNX": "HNX", "UPCOM": "UPCOM"}
 
 
+def _vnd_industries(level):
+    """{mã: tên ngành tiếng Việt} theo phân ngành ICB cấp `level` của VNDirect."""
+    j = _get(f"https://api-finfo.vndirect.com.vn/v4/industry_classification?q=industryLevel:{level}&size=200")
+    out = {}
+    for r in j["data"]:
+        for sym in (r.get("codeList") or "").split(","):
+            if sym.strip():
+                out[sym.strip()] = r.get("vietnameseName") or r.get("englishName") or ""
+    return out
+
+
 def listing():
     """Mọi cổ phiếu đang niêm yết HOSE/HNX/UPCoM kèm ngành ICB cấp 2 và cấp 3 (tiếng Việt)."""
     allsym = _get("https://trading.vietcap.com.vn/api/price/symbols/getAll", extra=VCI_HEADERS)
-    stocks = {r["symbol"]: {"exchange": BOARD[r.get("board")], "name": r.get("organName") or ""}
+    stocks = {r["symbol"]: {"exchange": BOARD[r.get("board")], "name": r.get("organShortName") or r.get("organName") or ""}
               for r in allsym
               if r.get("type") == "STOCK" and r.get("board") in BOARD and len(r.get("symbol", "")) == 3}
-    q = "{ CompaniesListingInfo { ticker organName icbName2 icbName3 } }"
-    info = _get("https://trading.vietcap.com.vn/data-mt/graphql", {"query": q, "variables": {}}, VCI_HEADERS)
-    icb = {r["ticker"]: r for r in info["data"]["CompaniesListingInfo"]}
-    out = []
-    for sym, s in sorted(stocks.items()):
-        r = icb.get(sym) or {}
-        out.append({"sym": sym, "exchange": s["exchange"], "name": r.get("organName") or s["name"],
-                    "sector": r.get("icbName2") or "Chưa phân ngành", "industry": r.get("icbName3") or ""})
+    try:
+        sec2, sec3 = _vnd_industries(2), _vnd_industries(3)
+    except Exception as e:
+        print(f"  Không lấy được phân ngành ICB ({e})")
+        sec2, sec3 = {}, {}
+    out = [{"sym": sym, "exchange": s["exchange"], "name": s["name"],
+            "sector": sec2.get(sym) or "Chưa phân ngành", "industry": sec3.get(sym) or ""}
+           for sym, s in sorted(stocks.items())]
     if len(out) < 300:
         raise RuntimeError(f"danh sách quá ngắn ({len(out)} mã)")
+    print(f"  Phân ngành: {sum(r['sector'] != 'Chưa phân ngành' for r in out)}/{len(out)} mã có ngành ICB")
     return out
 
 
-def vietcap_batch(symbols, days):
-    """Một yêu cầu trả về giá nhiều mã cùng lúc."""
-    j = _get("https://trading.vietcap.com.vn/api/chart/OHLCChart/gap-chart",
-             {"timeFrame": "ONE_DAY", "symbols": list(symbols), "to": int(time.time()) + 86400,
-              "countBack": int(days * 0.7)}, VCI_HEADERS)
-    out = {}
-    for d in j:
-        if d.get("t"):
-            out[d["symbol"]] = _frame([int(x) for x in d["t"]], d["o"], d["h"], d["l"], d["c"], d["v"])
-    return out
-
-
-def fetch_many(symbols, days=365 * 3, batch=40, workers=8, log=print):
-    """Giá cho nhiều mã: lấy theo lô từ Vietcap, mã nào thiếu thì lấy lẻ song song từ DNSE/TCBS."""
+def fetch_many(symbols, days=365 * 3, workers=10, log=print):
+    """Giá cho nhiều mã, lấy song song. API Vietcap chỉ trả đúng khi hỏi từng mã một."""
     from concurrent.futures import ThreadPoolExecutor
 
-    prices, used = {}, {}
-    for i in range(0, len(symbols), batch):
-        chunk = symbols[i:i + batch]
-        try:
-            got = vietcap_batch(chunk, days)
-            for s, df in got.items():
-                if len(df) >= 30:
-                    if df["close"].median() > 1000:
-                        df[["open", "high", "low", "close"]] /= 1000
-                    prices[s] = df
-                    used["vietcap"] = used.get("vietcap", 0) + 1
-        except Exception as e:
-            log(f"  lô {i // batch + 1}: Vietcap lỗi ({e})")
-        time.sleep(0.3)
-    missing = [s for s in symbols if s not in prices]
-    log(f"Vietcap theo lô: {len(prices)}/{len(symbols)} mã, lấy lẻ {len(missing)} mã còn lại")
+    prices, used, failed = {}, {}, []
 
     def one(s):
         try:
-            return s, *fetch(s, days=days, order=("dnse", "tcbs"))
+            return s, *fetch(s, days=days, order=("vietcap", "dnse", "tcbs"))
         except Exception:
             return s, None, None
+    t0 = time.time()
     with ThreadPoolExecutor(workers) as ex:
-        for s, df, src in ex.map(one, missing):
+        for k, (s, df, src) in enumerate(ex.map(one, symbols), 1):
             if df is not None:
                 prices[s] = df
                 used[src] = used.get(src, 0) + 1
-    log(f"Nguồn đã dùng: {used}; tổng {len(prices)}/{len(symbols)} mã")
+            else:
+                failed.append(s)
+            if k % 200 == 0:
+                log(f"  {k}/{len(symbols)} mã, {time.time() - t0:.0f}s")
+    log(f"Nguồn đã dùng: {used}; lấy được {len(prices)}/{len(symbols)} mã; lỗi {len(failed)}: {' '.join(failed[:30])}")
     return prices
