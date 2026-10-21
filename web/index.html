@@ -1,0 +1,589 @@
+<meta charset="utf-8">
+<title>Nhịp Cổ Phiếu</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: bảng điều khiển kiểu sổ lệnh — thanh trên cố định, tab theo nhiệm vụ, bảng là trung tâm, chi tiết mã mở dạng ngăn bên phải */
+:root {
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --ink: #14202e;
+  --muted: #5d6b7a;
+  --line: #d6dde5;
+  --accent: #1d4ed8;
+  --accent-soft: #e2e9fb;
+  --up: #0a8a4f;
+  --down: #d1293d;
+  --ref: #b7791f;
+  --ceil: #8b3fc7;
+  --floor: #0e9bb5;
+  --up-soft: #dcf2e6;
+  --down-soft: #fbe1e4;
+  --ref-soft: #f7ecd6;
+  --display: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
+  --body: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151c; --surface: #17202a; --ink: #e4eaf0; --muted: #8d9bab; --line: #2a3642;
+    --accent: #7aa2ff; --accent-soft: #1e2b47;
+    --up: #34c37f; --down: #ff5d6e; --ref: #e0a94a; --ceil: #c18bf0; --floor: #4fd0e6;
+    --up-soft: #133325; --down-soft: #3a1a20; --ref-soft: #3a2e17;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151c; --surface: #17202a; --ink: #e4eaf0; --muted: #8d9bab; --line: #2a3642;
+  --accent: #7aa2ff; --accent-soft: #1e2b47;
+  --up: #34c37f; --down: #ff5d6e; --ref: #e0a94a; --ceil: #c18bf0; --floor: #4fd0e6;
+  --up-soft: #133325; --down-soft: #3a1a20; --ref-soft: #3a2e17;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 14px; line-height: 1.45; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.num, td.n, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1320px; margin: 0 auto; }
+
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.topbar { display: flex; align-items: center; gap: 20px; padding-block: 10px; flex-wrap: wrap; }
+.brand { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; }
+.brand svg { flex: none; }
+nav.tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+nav.tabs button { font: 600 13px var(--body); color: var(--muted); background: none; border: 0; padding: 7px 12px; border-radius: 6px; cursor: pointer; }
+nav.tabs button:hover { color: var(--ink); background: var(--bg); }
+nav.tabs button[aria-selected="true"] { color: var(--accent); background: var(--accent-soft); }
+.asof { margin-left: auto; color: var(--muted); font-size: 12px; text-align: right; }
+.demo-band { background: var(--ref-soft); color: var(--ink); border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.demo-band .wrap { padding-block: 6px; }
+.demo-band b { color: var(--ref); }
+
+main { padding-block: 20px 40px; display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+main > section { min-width: 0; }
+h2 { font-family: var(--display); font-size: 17px; font-weight: 700; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+.sub { color: var(--muted); font-size: 12.5px; margin: 2px 0 0; }
+.section-head { display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+
+/* Tổng quan */
+.overview { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; }
+.idx-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.idx-val { font-family: var(--mono); font-size: 30px; font-weight: 600; letter-spacing: -0.02em; }
+.idx-spark { width: 100%; height: 170px; display: block; margin-top: 8px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 14px; }
+.fact .v { font-family: var(--mono); font-size: 18px; font-weight: 600; }
+.sector-list { display: grid; gap: 2px; }
+.sector-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 44px; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.sector-row:last-child { border-bottom: 0; }
+.sector-row .nm { font-weight: 600; }
+.sector-row .tops { color: var(--muted); font-size: 12px; }
+.bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+
+/* Bảng */
+.filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end; margin-bottom: 14px; }
+.filters label { display: grid; gap: 3px; font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.filters input, .filters select { font: 500 13px var(--body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+.filters input[type=search] { width: 120px; }
+.filters input[type=number] { width: 72px; font-family: var(--mono); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font: 600 12px var(--body); padding: 5px 10px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn { font: 600 12.5px var(--body); padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 8px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; background: var(--surface); position: sticky; top: 0; cursor: pointer; user-select: none; }
+th.n, td.n { text-align: right; }
+th[data-dir="asc"]::after { content: " ▲"; } th[data-dir="desc"]::after { content: " ▼"; }
+tbody tr { cursor: pointer; }
+tbody tr:hover td { background: var(--bg); }
+tbody tr:last-child td { border-bottom: 0; }
+td.sym { font-weight: 700; font-family: var(--mono); }
+td.sym .star { background: none; border: 0; cursor: pointer; color: var(--line); font-size: 14px; padding: 0 4px 0 0; }
+td.sym .star[aria-pressed="true"] { color: var(--ref); }
+.up { color: var(--up); } .down { color: var(--down); } .ref { color: var(--ref); } .ceil { color: var(--ceil); } .floor { color: var(--floor); }
+.pill { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+.pill.t-up { background: var(--up-soft); color: var(--up); }
+.pill.t-down { background: var(--down-soft); color: var(--down); }
+.pill.t-flat { background: var(--ref-soft); color: var(--ref); }
+.pill.sig-buy { background: var(--up); color: var(--surface); }
+.pill.sig-hold { background: var(--up-soft); color: var(--up); }
+.pill.sig-sell { background: var(--down); color: var(--surface); }
+.score { display: inline-flex; align-items: center; gap: 6px; }
+.score .meter { width: 44px; height: 6px; border-radius: 3px; background: var(--bg); overflow: hidden; }
+.score .meter i { display: block; height: 100%; }
+.mtf { display: inline-flex; gap: 3px; }
+.mtf span { width: 20px; height: 18px; border-radius: 3px; font: 600 10px var(--mono); display: grid; place-items: center; }
+.empty { padding: 30px; text-align: center; color: var(--muted); }
+
+/* Tín hiệu */
+.sig-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.sig-card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; cursor: pointer; }
+.sig-card:hover { border-color: var(--accent); }
+.sig-card .hd { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.sig-card .tk { font: 700 18px var(--mono); }
+.levels { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.levels div { display: grid; gap: 1px; }
+.levels .v { font: 600 13px var(--mono); }
+.ladder { position: relative; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--down-soft) 0 var(--p-entry), var(--up-soft) var(--p-entry) 100%); }
+.ladder i { position: absolute; top: -4px; width: 2px; height: 16px; background: var(--ink); border-radius: 1px; }
+.ladder .tick { position: absolute; top: 0; width: 1px; height: 8px; background: var(--muted); }
+.sig-meta { color: var(--muted); font-size: 12px; }
+.group-title { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; }
+
+/* Nhật ký */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.stat .v { font: 600 22px var(--mono); margin-top: 2px; }
+.compare { display: grid; gap: 8px; margin-top: 4px; }
+.compare-row { display: grid; grid-template-columns: 170px minmax(0, 1fr) 64px; gap: 10px; align-items: center; font-size: 13px; }
+.rules { columns: 2 320px; column-gap: 28px; color: var(--ink); font-size: 13px; }
+.rules p { margin: 0 0 10px; break-inside: avoid; }
+.rules b { font-weight: 700; }
+
+/* Ngăn chi tiết */
+.drawer-bg { position: fixed; inset: 0; background: rgb(10 15 20 / 0.45); z-index: 20; }
+aside.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(720px, 100%); background: var(--surface); z-index: 21; overflow-y: auto; border-left: 1px solid var(--line);
+  padding: calc(16px + env(safe-area-inset-top, 0px)) max(18px, env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) 18px; display: grid; gap: 16px; align-content: start; }
+.d-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.d-head .tk { font: 700 26px var(--mono); }
+.d-head .close { margin-left: auto; }
+#chart { height: 340px; width: 100%; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 16px; }
+.kv .v { font: 600 14px var(--mono); }
+.d-note { font-size: 12.5px; color: var(--muted); }
+
+footer { color: var(--muted); font-size: 12px; padding-block: 0 30px; }
+footer p { max-width: 75ch; margin: 0 0 6px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 820px) {
+  .overview { grid-template-columns: minmax(0, 1fr); }
+  .asof { margin-left: 0; text-align: left; width: 100%; }
+  .compare-row { grid-template-columns: 120px minmax(0, 1fr) 56px; }
+  #chart { height: 280px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="top">
+  <div class="wrap topbar">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="1" y="12" width="4" height="9" rx="1" fill="var(--down)"/><rect x="7" y="7" width="4" height="14" rx="1" fill="var(--ref)"/><rect x="13" y="3" width="4" height="18" rx="1" fill="var(--up)"/><path d="M2 10 L9 5 L15 2 L21 1" stroke="var(--accent)" stroke-width="1.6" fill="none"/></svg>
+      Nhịp Cổ Phiếu
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="tongquan">Tổng quan</button>
+      <button role="tab" data-tab="boloc">Bộ lọc</button>
+      <button role="tab" data-tab="tinhieu">Tín hiệu</button>
+      <button role="tab" data-tab="nhatky">Nhật ký giao dịch</button>
+      <button role="tab" data-tab="phuongphap">Phương pháp</button>
+    </nav>
+    <div class="asof" id="asof">Đang tải dữ liệu…</div>
+  </div>
+  <div class="demo-band" id="demoBand" hidden><div class="wrap"><b>Dữ liệu mô phỏng.</b> Giá và tín hiệu trên trang này được tạo ngẫu nhiên để xem thử giao diện, không phải giá thật của các mã. Chạy <span class="mono">engine/build.py</span> không có <span class="mono">--demo</span> để lấy dữ liệu thật.</div></div>
+</header>
+
+<main class="wrap">
+  <!-- TỔNG QUAN -->
+  <section data-view="tongquan" hidden>
+    <div class="overview">
+      <div class="panel">
+        <div class="label">VN-Index</div>
+        <div class="idx-head"><span class="idx-val" id="idxVal">–</span><span id="idxChg"></span></div>
+        <svg class="idx-spark" id="idxSpark" preserveAspectRatio="none"></svg>
+        <div class="facts" id="mktFacts"></div>
+      </div>
+      <div class="panel">
+        <div class="section-head"><div><h2>Sức mạnh theo ngành</h2><p class="sub">Xếp theo điểm sức mạnh trung bình 0–10</p></div></div>
+        <div class="sector-list" id="sectorList"></div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:20px">
+      <div class="section-head"><div><h2>Top cổ phiếu mạnh nhất</h2><p class="sub">10 mã có điểm sức mạnh cao nhất hôm nay. Bấm để xem biểu đồ.</p></div>
+        <button class="btn" data-goto="boloc">Mở bộ lọc đầy đủ</button></div>
+      <div class="table-wrap" style="margin-top:12px"><table id="topTable"></table></div>
+    </div>
+  </section>
+
+  <!-- BỘ LỌC -->
+  <section data-view="boloc" hidden>
+    <div class="section-head" style="margin-bottom:12px"><div><h2>Bộ lọc cổ phiếu</h2><p class="sub" id="screenCount"></p></div>
+      <div class="chips" id="presets">
+        <button class="chip" data-preset="leaders">Dẫn dắt (RS ≥ 80, điểm ≥ 7)</button>
+        <button class="chip" data-preset="flow">Dòng tiền vào mạnh</button>
+        <button class="chip" data-preset="breakout">Vừa có tín hiệu mua</button>
+        <button class="chip" data-preset="value">Cơ bản tốt (P/E ≤ 15, ROE ≥ 15)</button>
+        <button class="chip" data-preset="watch">★ Danh sách theo dõi</button>
+      </div>
+    </div>
+    <div class="filters">
+      <label>Mã<input type="search" id="fSym" placeholder="VD: FPT"></label>
+      <label>Ngành<select id="fSector"><option value="">Tất cả</option></select></label>
+      <label>Xu hướng ngắn<select id="fTs"><option value="">Tất cả</option><option>Tăng</option><option>Đi ngang</option><option>Giảm</option></select></label>
+      <label>Xu hướng trung<select id="fTm"><option value="">Tất cả</option><option>Tăng</option><option>Đi ngang</option><option>Giảm</option></select></label>
+      <label>Dòng tiền<select id="fFlow"><option value="">Tất cả</option><option>Vào mạnh</option><option>Vào</option><option>Trung tính</option><option>Ra</option><option>Ra mạnh</option></select></label>
+      <label>Tín hiệu<select id="fSig"><option value="">Tất cả</option><option>MUA</option><option>NẮM GIỮ</option><option>BÁN</option></select></label>
+      <label>RS tối thiểu<input type="number" id="fRs" min="1" max="99" value="1"></label>
+      <label>Điểm tối thiểu<input type="number" id="fScore" min="0" max="10" step="0.5" value="0"></label>
+      <label>GTGD ≥ (tỷ)<input type="number" id="fVal" min="0" step="5" value="0"></label>
+      <label>P/E ≤<input type="number" id="fPe" min="0" step="1" value=""></label>
+      <button class="btn" id="fReset">Xoá lọc</button>
+    </div>
+    <div class="table-wrap"><table id="screenTable"></table></div>
+  </section>
+
+  <!-- TÍN HIỆU -->
+  <section data-view="tinhieu" hidden>
+    <div class="section-head" style="margin-bottom:14px"><div><h2>Tín hiệu giao dịch</h2><p class="sub">Điểm mua, dừng lỗ, mục tiêu T1 và T2 cho từng mã. Thanh dưới mỗi thẻ cho thấy giá hiện tại nằm đâu giữa dừng lỗ và T2.</p></div></div>
+    <div id="sigGroups" style="display:grid;gap:22px"></div>
+  </section>
+
+  <!-- NHẬT KÝ -->
+  <section data-view="nhatky" hidden>
+    <div class="section-head" style="margin-bottom:14px"><div><h2>Nhật ký giao dịch theo tín hiệu</h2><p class="sub" id="jrSub"></p></div></div>
+    <div class="stats" id="jrStats"></div>
+    <div class="panel" style="margin-top:16px">
+      <div class="label">Tăng trưởng kép mỗi năm (CAGR)</div>
+      <div class="compare" id="jrCompare"></div>
+      <p class="sub" style="margin-top:10px">Chiến lược chia vốn đều cho mọi mã, chỉ cầm cổ phiếu khi có tín hiệu và để tiền mặt khi không có. Mua và nắm giữ là cầm toàn bộ danh sách suốt giai đoạn. Chưa tính phí giao dịch, thuế và trượt giá.</p>
+    </div>
+    <div class="table-wrap" style="margin-top:16px"><table id="jrTable"></table></div>
+  </section>
+
+  <!-- PHƯƠNG PHÁP -->
+  <section data-view="phuongphap" hidden>
+    <div class="panel">
+      <h2>Cách tính các chỉ số</h2>
+      <p class="sub" style="margin-bottom:14px">Mọi chỉ số tính từ giá đóng cửa ngày, khối lượng và VN-Index. Quy tắc nằm trong <span class="mono">engine/indicators.py</span>, sửa ở đó là trang tự cập nhật lần chạy sau.</p>
+      <div class="rules">
+        <p><b>Xu hướng ngắn hạn.</b> Tăng khi giá trên EMA20 và EMA20 đi lên so với 5 phiên trước. Giảm khi ngược lại. Còn lại là đi ngang.</p>
+        <p><b>Xu hướng trung hạn.</b> Tăng khi giá trên EMA50, EMA50 trên MA200 và EMA50 đi lên so với 10 phiên trước.</p>
+        <p><b>RS (sức mạnh tương đối) 1–99.</b> Hiệu suất có trọng số 40% quý gần nhất và 20% cho mỗi quý trước trong 12 tháng, rồi xếp hạng phần trăm trong danh sách theo dõi. RS 90 nghĩa là mạnh hơn 90% số mã còn lại. Dấu ↗ cạnh RS là đường giá/VN-Index đang ở đỉnh 3 tháng.</p>
+        <p><b>Dòng tiền.</b> Dựa trên Chaikin Money Flow 20 phiên và khối lượng so với trung bình 20 phiên. Vào mạnh khi CMF &gt; 0,1 và khối lượng &gt; 1,3 lần trung bình.</p>
+        <p><b>Động lượng đa khung (N / T / Th).</b> Trên khung ngày, tuần, tháng, mỗi khung được 0–3 điểm: giá trên EMA10, MACD histogram dương, RSI trên 50. Ô càng đậm càng mạnh.</p>
+        <p><b>Điểm sức mạnh 0–10.</b> Xu hướng ngắn tối đa 1,5 · xu hướng trung 2 · RS 3 · dòng tiền 1,5 · động lượng đa khung 2.</p>
+        <p><b>Tín hiệu MUA.</b> Giá đóng cửa vượt đỉnh 20 phiên trước, khối lượng &gt; 1,3 lần trung bình, giá trên EMA50, EMA20 trên EMA50 và RSI dưới 80. Giá vào là giá đóng cửa phiên tín hiệu.</p>
+        <p><b>Dừng lỗ và mục tiêu.</b> Dừng lỗ = giá vào − 2×ATR14 (gọi khoảng này là R). T1 = giá vào + 1,5R, chạm T1 thì dời dừng lỗ về giá vào. T2 = giá vào + 3R thì chốt toàn bộ.</p>
+        <p><b>Tín hiệu BÁN.</b> Đóng cửa dưới EMA20 và MACD histogram vừa chuyển âm, hoặc chạm dừng lỗ, hoặc đạt T2. Do thanh toán T+2, lệnh chỉ được thoát từ phiên thứ 3 sau khi mua.</p>
+        <p><b>Nhật ký.</b> Chạy lại đúng các quy tắc trên toàn bộ lịch sử để đếm tỉ lệ thắng, lãi/lỗ trung bình và so CAGR với mua và nắm giữ. Kết quả quá khứ không bảo đảm kết quả tương lai.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">
+  <p>Trang chỉ cung cấp tín hiệu kỹ thuật tính tự động từ dữ liệu giá, không phải khuyến nghị đầu tư. Bạn tự chịu trách nhiệm với quyết định mua bán của mình.</p>
+  <p id="genAt"></p>
+</footer>
+
+<div class="drawer-bg" id="drawerBg" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="Chi tiết mã"></aside>
+
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+(() => {
+  let D = null;
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+  let watch = new Set(store.get("watch", []));
+
+  const fmt = (v, nd = 2) => v == null ? "–" : Number(v).toLocaleString("vi-VN", { minimumFractionDigits: nd, maximumFractionDigits: nd });
+  const pct = (v, nd = 2) => v == null ? "–" : (v > 0 ? "+" : "") + fmt(v, nd) + "%";
+  // Màu giá theo quy ước bảng điện VN: tím trần, xanh lơ sàn (biên độ HOSE ±7%), vàng tham chiếu
+  const chgCls = v => v == null ? "" : v >= 6.7 ? "ceil" : v <= -6.7 ? "floor" : v > 0 ? "up" : v < 0 ? "down" : "ref";
+  const trendPill = t => `<span class="pill ${t === "Tăng" ? "t-up" : t === "Giảm" ? "t-down" : "t-flat"}">${t}</span>`;
+  const sigPill = s => s === "MUA" ? '<span class="pill sig-buy">MUA</span>' : s === "NẮM GIỮ" ? '<span class="pill sig-hold">NẮM GIỮ</span>' : s === "BÁN" ? '<span class="pill sig-sell">BÁN</span>' : '<span class="sub">—</span>';
+  const flowCls = f => f.startsWith("Vào") ? "up" : f.startsWith("Ra") ? "down" : "ref";
+  const scoreColor = s => s >= 7 ? "var(--up)" : s >= 4.5 ? "var(--ref)" : "var(--down)";
+  const scoreHtml = s => `<span class="score"><span class="num">${fmt(s, 1)}</span><span class="meter"><i style="width:${s * 10}%;background:${scoreColor(s)}"></i></span></span>`;
+  const mtfHtml = m => `<span class="mtf">${[["D", "N"], ["W", "T"], ["M", "Th"]].map(([k, lb]) => {
+      const v = m[k]; const a = v == null ? 0 : [0.08, 0.3, 0.6, 1][v];
+      const bg = v == null ? "var(--bg)" : `color-mix(in srgb, var(--up) ${a * 100}%, var(--bg))`;
+      const fg = v != null && v >= 2 ? "var(--surface)" : "var(--muted)";
+      return `<span title="Khung ${lb}: ${v ?? "–"}/3" style="background:${bg};color:${fg}">${lb}</span>`;
+    }).join("")}</span>`;
+
+  /* ---------- Tabs ---------- */
+  const TABS = ["tongquan", "boloc", "tinhieu", "nhatky", "phuongphap"];
+  function show(tab) {
+    if (!TABS.includes(tab)) tab = "tongquan";
+    $$("nav.tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
+    $$("section[data-view]").forEach(s => s.hidden = s.dataset.view !== tab);
+    store.set("tab", tab);
+  }
+  $$("nav.tabs button").forEach(b => b.addEventListener("click", () => show(b.dataset.tab)));
+  document.addEventListener("click", e => { const g = e.target.closest("[data-goto]"); if (g) show(g.dataset.goto); });
+
+  /* ---------- Tổng quan ---------- */
+  function renderOverview() {
+    const m = D.market;
+    $("#idxVal").textContent = fmt(m.index, 2);
+    $("#idxChg").innerHTML = `<span class="num ${chgCls(m.chg)}">${pct(m.chg)}</span> · ngắn hạn ${trendPill(m.trend_s)} trung hạn ${trendPill(m.trend_m)}`;
+    const c = m.chart.c, svg = $("#idxSpark"), W = 600, H = 120;
+    const lo = Math.min(...c), hi = Math.max(...c), x = i => i / (c.length - 1) * W, y = v => H - 6 - (v - lo) / (hi - lo || 1) * (H - 12);
+    const pts = c.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML = `
+      ${[0.25, 0.5, 0.75].map(f => `<line x1="0" x2="${W}" y1="${H * f}" y2="${H * f}" stroke="var(--line)" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join("")}
+      <polygon points="0,${H} ${pts} ${W},${H}" fill="var(--accent)" fill-opacity="0.09"/>
+      <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.8" vector-effect="non-scaling-stroke"/>
+      <circle cx="${x(c.length - 1)}" cy="${y(c.at(-1))}" r="3.5" fill="var(--accent)"/>`;
+    $("#mktFacts").innerHTML = [
+      ["Mã trên EMA50", m.breadth50 + "%", m.breadth50 >= 50 ? "up" : "down"],
+      ["Tín hiệu MUA mới", m.n_buy, "up"],
+      ["Đang nắm giữ", m.n_hold, ""],
+      ["Tín hiệu BÁN", m.n_sell, "down"],
+    ].map(([l, v, cl]) => `<div class="fact"><div class="label">${l}</div><div class="v ${cl}">${v}</div></div>`).join("");
+    const maxS = 10;
+    $("#sectorList").innerHTML = D.sectors.map(s => `
+      <div class="sector-row">
+        <div><div class="nm">${s.name}</div><div class="tops">RS ${s.rs} · ${s.up}/${s.n} mã tăng trung hạn · <span class="mono">${s.top.join(" ")}</span></div></div>
+        <div class="bar"><i style="width:${s.score / maxS * 100}%;background:${scoreColor(s.score)}"></i></div>
+        <div class="num" style="text-align:right">${fmt(s.score, 1)}</div>
+      </div>`).join("");
+    renderTable($("#topTable"), D.stocks.slice(0, 10), { sortable: false });
+  }
+
+  /* ---------- Bảng cổ phiếu ---------- */
+  const COLS = [
+    { k: "sym", t: "Mã", r: s => `<button class="star" data-star="${s.sym}" aria-pressed="${watch.has(s.sym)}" aria-label="Theo dõi ${s.sym}">★</button>${s.sym}`, cls: "sym" },
+    { k: "sector", t: "Ngành", r: s => `<span class="sub">${s.sector}</span>` },
+    { k: "price", t: "Giá", n: 1, r: s => `<span class="${chgCls(s.chg)}">${fmt(s.price)}</span>` },
+    { k: "chg", t: "%", n: 1, r: s => `<span class="${chgCls(s.chg)}">${pct(s.chg)}</span>` },
+    { k: "chg20", t: "20 phiên", n: 1, r: s => `<span class="${s.chg20 > 0 ? "up" : s.chg20 < 0 ? "down" : "ref"}">${pct(s.chg20, 1)}</span>` },
+    { k: "trend_s", t: "XH ngắn", r: s => trendPill(s.trend_s) },
+    { k: "trend_m", t: "XH trung", r: s => trendPill(s.trend_m) },
+    { k: "rs", t: "RS", n: 1, r: s => `${s.rs}${s.rs_line_high ? ' <span class="up" title="Đường RS ở đỉnh 3 tháng">↗</span>' : ""}` },
+    { k: "score", t: "Điểm", n: 1, r: s => scoreHtml(s.score) },
+    { k: "flow", t: "Dòng tiền", r: s => `<span class="${flowCls(s.flow)}">${s.flow}</span> <span class="sub num">${fmt(s.vol_ratio, 1)}×</span>` },
+    { k: "mtf", t: "Đa khung", r: s => mtfHtml(s.mtf), sortv: s => (s.mtf.D ?? 0) + (s.mtf.W ?? 0) + (s.mtf.M ?? 0) },
+    { k: "value_bn", t: "GTGD tỷ", n: 1, r: s => fmt(s.value_bn, 1) },
+    { k: "pe", t: "P/E", n: 1, r: s => fmt(s.pe, 1) },
+    { k: "roe", t: "ROE %", n: 1, r: s => fmt(s.roe, 1) },
+    { k: "signal", t: "Tín hiệu", r: s => sigPill(s.signal), sortv: s => ({ "MUA": 3, "NẮM GIỮ": 2, "BÁN": 1 })[s.signal] || 0 },
+  ];
+  let sort = store.get("sort", { k: "score", dir: "desc" });
+
+  function renderTable(table, rows, { sortable = true } = {}) {
+    if (sortable) {
+      const col = COLS.find(c => c.k === sort.k) || COLS[8];
+      const val = col.sortv || (s => s[col.k]);
+      rows = [...rows].sort((a, b) => {
+        const va = val(a), vb = val(b);
+        if (va == null) return 1; if (vb == null) return -1;
+        const r = typeof va === "string" ? va.localeCompare(vb, "vi") : va - vb;
+        return sort.dir === "asc" ? r : -r;
+      });
+    }
+    table.innerHTML = `<thead><tr>${COLS.map(c => `<th class="${c.n ? "n" : ""}" data-k="${c.k}" ${sortable && sort.k === c.k ? `data-dir="${sort.dir}"` : ""}>${c.t}</th>`).join("")}</tr></thead>
+      <tbody>${rows.length ? rows.map(s => `<tr data-sym="${s.sym}">${COLS.map(c => `<td class="${c.n ? "n" : ""} ${c.cls || ""}">${c.r(s)}</td>`).join("")}</tr>`).join("")
+        : `<tr><td colspan="${COLS.length}" class="empty">Không có mã nào khớp bộ lọc. Thử nới điều kiện hoặc bấm Xoá lọc.</td></tr>`}</tbody>`;
+    if (sortable) $$("th", table).forEach(th => th.addEventListener("click", () => {
+      sort = { k: th.dataset.k, dir: sort.k === th.dataset.k && sort.dir === "desc" ? "asc" : "desc" };
+      store.set("sort", sort); renderScreener();
+    }));
+  }
+
+  document.addEventListener("click", e => {
+    const star = e.target.closest("[data-star]");
+    if (star) {
+      e.stopPropagation();
+      const s = star.dataset.star;
+      watch.has(s) ? watch.delete(s) : watch.add(s);
+      store.set("watch", [...watch]);
+      $$(`[data-star="${s}"]`).forEach(b => b.setAttribute("aria-pressed", watch.has(s)));
+      if (activePreset === "watch") renderScreener();
+      return;
+    }
+    const row = e.target.closest("tr[data-sym], .sig-card[data-sym]");
+    if (row) openDetail(row.dataset.sym);
+  });
+
+  /* ---------- Bộ lọc ---------- */
+  const F = { sym: "#fSym", sector: "#fSector", ts: "#fTs", tm: "#fTm", flow: "#fFlow", sig: "#fSig", rs: "#fRs", score: "#fScore", val: "#fVal", pe: "#fPe" };
+  let activePreset = null;
+  function readF() { const o = {}; for (const k in F) o[k] = $(F[k]).value.trim(); return o; }
+  function renderScreener() {
+    const f = readF();
+    const rows = D.stocks.filter(s =>
+      (!f.sym || s.sym.includes(f.sym.toUpperCase())) &&
+      (!f.sector || s.sector === f.sector) && (!f.ts || s.trend_s === f.ts) && (!f.tm || s.trend_m === f.tm) &&
+      (!f.flow || s.flow === f.flow) && (!f.sig || s.signal === f.sig) &&
+      (s.rs ?? 0) >= (+f.rs || 0) && s.score >= (+f.score || 0) && (s.value_bn ?? 0) >= (+f.val || 0) &&
+      (!f.pe || (s.pe != null && s.pe > 0 && s.pe <= +f.pe)) &&
+      (activePreset !== "flow" || s.flow.startsWith("Vào")) &&
+      (activePreset !== "value" || (s.roe ?? 0) >= 15) &&
+      (activePreset !== "watch" || watch.has(s.sym)));
+    $("#screenCount").textContent = `${rows.length} / ${D.stocks.length} mã khớp điều kiện`;
+    renderTable($("#screenTable"), rows);
+    store.set("filters", { f, activePreset });
+  }
+  function resetF() { for (const k in F) $(F[k]).value = { rs: "1", score: "0", val: "0" }[k] ?? ""; }
+  const PRESETS = {
+    leaders: () => { $("#fRs").value = 80; $("#fScore").value = 7; },
+    flow: () => {},
+    breakout: () => { $("#fSig").value = "MUA"; },
+    value: () => { $("#fPe").value = 15; },
+    watch: () => {},
+  };
+  $$("#presets .chip").forEach(ch => ch.addEventListener("click", () => {
+    const p = ch.dataset.preset, on = activePreset !== p;
+    resetF(); activePreset = on ? p : null;
+    if (on) PRESETS[p]();
+    $$("#presets .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.preset === activePreset));
+    renderScreener();
+  }));
+  Object.values(F).forEach(sel => $(sel).addEventListener("input", renderScreener));
+  $("#fReset").addEventListener("click", () => { resetF(); activePreset = null; $$("#presets .chip").forEach(c => c.setAttribute("aria-pressed", false)); renderScreener(); });
+
+  /* ---------- Tín hiệu ---------- */
+  function ladder(s) {
+    const g = s.sig, lo = g.stop, hi = g.t2, span = hi - lo || 1, p = v => Math.max(0, Math.min(100, (v - lo) / span * 100));
+    return `<div class="ladder" style="--p-entry:${p(g.entry)}%"><span class="tick" style="left:${p(g.t1)}%"></span><i style="left:calc(${p(s.price)}% - 1px)" title="Giá hiện tại"></i></div>`;
+  }
+  function renderSignals() {
+    const groups = [
+      ["MUA", "Tín hiệu mua mới", "Kích hoạt trong 3 phiên gần nhất"],
+      ["NẮM GIỮ", "Đang nắm giữ", "Lệnh mở từ tín hiệu trước, chưa chạm dừng lỗ hay T2"],
+      ["BÁN", "Tín hiệu bán", "Đóng lệnh trong vài phiên gần nhất"],
+    ];
+    $("#sigGroups").innerHTML = groups.map(([k, title, desc]) => {
+      const rows = D.stocks.filter(s => s.signal === k);
+      const cards = rows.map(s => {
+        const g = s.sig;
+        if (k === "BÁN") return `<div class="sig-card" data-sym="${s.sym}">
+            <div class="hd"><span class="tk">${s.sym}</span>${sigPill(k)}</div>
+            <div class="levels"><div><span class="label">Giá vào</span><span class="v">${fmt(g.entry)}</span></div><div><span class="label">Giá ra</span><span class="v">${fmt(g.exit)}</span></div>
+              <div><span class="label">Kết quả</span><span class="v ${g.pnl >= 0 ? "up" : "down"}">${pct(g.pnl, 1)}</span></div><div><span class="label">Điểm</span><span class="v">${fmt(s.score, 1)}</span></div></div>
+            <div class="sig-meta">${g.reason} · ngày ${g.date} · ${s.sector}</div></div>`;
+        return `<div class="sig-card" data-sym="${s.sym}">
+            <div class="hd"><span class="tk">${s.sym}</span><span>${sigPill(k)} <span class="num ${g.pnl >= 0 ? "up" : "down"}">${pct(g.pnl, 1)}</span></span></div>
+            <div class="levels">
+              <div><span class="label">Mua</span><span class="v">${fmt(g.entry)}</span></div>
+              <div><span class="label">Dừng lỗ</span><span class="v down">${fmt(g.stop)}</span></div>
+              <div><span class="label">T1${g.t1_hit ? " ✓" : ""}</span><span class="v up">${fmt(g.t1)}</span></div>
+              <div><span class="label">T2</span><span class="v up">${fmt(g.t2)}</span></div>
+            </div>
+            ${ladder(s)}
+            <div class="sig-meta">Giá ${fmt(s.price)} · từ ${g.date} (${g.age} phiên) · RS ${s.rs} · điểm ${fmt(s.score, 1)} · ${s.sector}</div></div>`;
+      }).join("");
+      return `<div><div class="group-title"><h2>${title}</h2><span class="sub">${rows.length} mã · ${desc}</span></div>
+        ${rows.length ? `<div class="sig-grid">${cards}</div>` : `<div class="panel empty">Chưa có mã nào ở nhóm này hôm nay.</div>`}</div>`;
+    }).join("");
+  }
+
+  /* ---------- Nhật ký ---------- */
+  function renderJournal() {
+    const j = D.journal;
+    if (!j.n) { $("#jrStats").innerHTML = '<div class="panel empty">Chưa có lệnh nào trong lịch sử.</div>'; return; }
+    $("#jrSub").textContent = `${j.n} lệnh trên ${D.stocks.length} mã, từ ${j.from} (${fmt(j.years, 1)} năm)`;
+    $("#jrStats").innerHTML = [
+      ["Tỉ lệ thắng", fmt(j.win_rate, 1) + "%", ""],
+      ["Lãi TB lệnh thắng", pct(j.avg_win, 1), "up"],
+      ["Lỗ TB lệnh thua", pct(j.avg_loss, 1), "down"],
+      ["Hệ số lợi nhuận", fmt(j.profit_factor, 2), j.profit_factor >= 1 ? "up" : "down"],
+      ["Giữ lệnh TB", fmt(j.avg_days, 0) + " phiên", ""],
+    ].map(([l, v, c]) => `<div class="stat"><div class="label">${l}</div><div class="v ${c}">${v}</div></div>`).join("");
+    const items = [["Chiến lược theo tín hiệu", j.cagr_strategy], ["Mua và nắm giữ cả rổ", j.cagr_bh], ["VN-Index", j.cagr_index]];
+    const mx = Math.max(...items.map(i => Math.abs(i[1] ?? 0)), 1);
+    $("#jrCompare").innerHTML = items.map(([l, v]) => `<div class="compare-row"><span>${l}</span>
+        <div class="bar" style="height:10px"><i style="width:${Math.abs(v) / mx * 100}%;background:${v >= 0 ? "var(--up)" : "var(--down)"}"></i></div>
+        <span class="num ${v >= 0 ? "up" : "down"}" style="text-align:right">${pct(v, 1)}</span></div>`).join("");
+    $("#jrTable").innerHTML = `<thead><tr><th>Mã</th><th>Ngày mua</th><th>Ngày bán</th><th class="n">Giá mua</th><th class="n">Giá bán</th><th class="n">Lãi/lỗ</th><th class="n">Phiên</th><th>Lý do thoát</th></tr></thead>
+      <tbody>${j.recent.map(t => `<tr data-sym="${t.sym}"><td class="sym">${t.sym}</td><td class="mono">${t.in}</td><td class="mono">${t.out}</td>
+        <td class="n">${fmt(t.entry)}</td><td class="n">${fmt(t.exit)}</td><td class="n ${t.ret >= 0 ? "up" : "down"}">${pct(t.ret, 1)}</td><td class="n">${t.days}</td><td>${t.reason}</td></tr>`).join("")}</tbody>`;
+  }
+
+  /* ---------- Chi tiết mã ---------- */
+  let chart = null;
+  function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  function openDetail(sym) {
+    const s = D.stocks.find(x => x.sym === sym); if (!s) return;
+    const g = s.sig;
+    $("#drawer").innerHTML = `
+      <div class="d-head"><span class="tk">${s.sym}</span><span class="num ${chgCls(s.chg)}" style="font-size:18px">${fmt(s.price)} ${pct(s.chg)}</span>${sigPill(s.signal)}
+        <button class="btn close" id="dClose">Đóng</button></div>
+      <div class="sub" style="margin-top:-10px">${s.sector} · giá nghìn đồng · nến ngày ${D.stocks[0].chart.d.length} phiên gần nhất</div>
+      <div id="chart"></div>
+      <div class="sub">Đường xanh dương EMA20, đường cam EMA50. Mũi tên ▲ là điểm mua, ▼ là điểm bán của hệ thống.</div>
+      <div class="kv">
+        <div><div class="label">Điểm sức mạnh</div><div class="v">${scoreHtml(s.score)}</div></div>
+        <div><div class="label">RS</div><div class="v">${s.rs}${s.rs_line_high ? ' <span class="up">↗ đỉnh 3 tháng</span>' : ""}</div></div>
+        <div><div class="label">Xu hướng ngắn / trung</div><div class="v">${trendPill(s.trend_s)} ${trendPill(s.trend_m)}</div></div>
+        <div><div class="label">Động lượng đa khung</div><div class="v">${mtfHtml(s.mtf)}</div></div>
+        <div><div class="label">Dòng tiền</div><div class="v ${flowCls(s.flow)}">${s.flow}</div></div>
+        <div><div class="label">CMF20 · MFI14 · RSI</div><div class="v">${fmt(s.cmf)} · ${s.mfi} · ${s.rsi}</div></div>
+        <div><div class="label">KL so TB20</div><div class="v">${fmt(s.vol_ratio, 2)}×</div></div>
+        <div><div class="label">GTGD TB 20 phiên</div><div class="v">${fmt(s.value_bn, 1)} tỷ</div></div>
+        <div><div class="label">P/E · P/B · ROE</div><div class="v">${fmt(s.pe, 1)} · ${fmt(s.pb, 2)} · ${fmt(s.roe, 1)}%</div></div>
+      </div>
+      ${g && s.signal !== "BÁN" ? `<div class="panel"><div class="label" style="margin-bottom:8px">Lệnh đang mở từ ${g.date}</div>
+        <div class="levels"><div><span class="label">Mua</span><span class="v">${fmt(g.entry)}</span></div><div><span class="label">Dừng lỗ</span><span class="v down">${fmt(g.stop)}</span></div>
+        <div><span class="label">T1${g.t1_hit ? " ✓" : ""}</span><span class="v up">${fmt(g.t1)}</span></div><div><span class="label">T2</span><span class="v up">${fmt(g.t2)}</span></div></div>
+        <div style="margin-top:10px">${ladder(s)}</div></div>` : ""}
+      ${g && s.signal === "BÁN" ? `<div class="panel"><div class="label">Lệnh vừa đóng ${g.date}</div><p style="margin:6px 0 0">Mua ${fmt(g.entry)}, bán ${fmt(g.exit)} (${g.reason}), kết quả <b class="${g.pnl >= 0 ? "up" : "down"}">${pct(g.pnl, 1)}</b>.</p></div>` : ""}`;
+    $("#drawer").hidden = false; $("#drawerBg").hidden = false;
+    $("#dClose").addEventListener("click", closeDetail); $("#dClose").focus();
+    drawChart(s);
+  }
+  function closeDetail() { $("#drawer").hidden = true; $("#drawerBg").hidden = true; if (chart) { chart.remove(); chart = null; } }
+  $("#drawerBg").addEventListener("click", closeDetail);
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#drawer").hidden) closeDetail(); });
+
+  function drawChart(s) {
+    const el = $("#chart");
+    if (!window.LightweightCharts) { el.innerHTML = '<div class="empty">Không tải được thư viện biểu đồ.</div>'; return; }
+    const c = s.chart, up = cssVar("--up"), down = cssVar("--down");
+    chart = LightweightCharts.createChart(el, {
+      autoSize: true,
+      layout: { background: { color: cssVar("--surface") }, textColor: cssVar("--muted"), fontFamily: "IBM Plex Mono, monospace", fontSize: 11 },
+      grid: { vertLines: { color: cssVar("--line") }, horzLines: { color: cssVar("--line") } },
+      rightPriceScale: { borderColor: cssVar("--line") }, timeScale: { borderColor: cssVar("--line") },
+      localization: { locale: "vi-VN" },
+    });
+    const candles = chart.addCandlestickSeries({ upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down });
+    candles.setData(c.d.map((d, i) => ({ time: d, open: c.o[i], high: c.h[i], low: c.l[i], close: c.c[i] })));
+    const vol = chart.addHistogramSeries({ priceScaleId: "vol", priceFormat: { type: "volume" } });
+    chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+    vol.setData(c.d.map((d, i) => ({ time: d, value: c.v[i], color: (c.c[i] >= c.o[i] ? up : down) + "55" })));
+    const line = (arr, color) => { const l = chart.addLineSeries({ color, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false }); l.setData(c.d.map((d, i) => ({ time: d, value: arr[i] })).filter(p => p.value != null)); };
+    line(c.e20, cssVar("--accent")); line(c.e50, cssVar("--ref"));
+    candles.setMarkers(c.m.map(m => m.k === "B"
+      ? { time: m.d, position: "belowBar", color: up, shape: "arrowUp", text: "Mua" }
+      : { time: m.d, position: "aboveBar", color: down, shape: "arrowDown", text: "Bán" }).sort((a, b) => a.time < b.time ? -1 : 1));
+    if (s.sig && s.signal !== "BÁN") {
+      [[s.sig.stop, down, "Dừng lỗ"], [s.sig.t1, up, "T1"], [s.sig.t2, up, "T2"]].forEach(([p, col, t]) =>
+        candles.createPriceLine({ price: p, color: col, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: t }));
+    }
+    chart.timeScale().fitContent();
+  }
+
+  /* ---------- Khởi động ---------- */
+  fetch("data/signals.json").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(data => {
+    D = data;
+    $("#asof").innerHTML = `Dữ liệu đến phiên <b class="mono">${D.as_of}</b>`;
+    $("#genAt").textContent = `Cập nhật lúc ${D.generated}. ${D.stocks.length} mã theo dõi.`;
+    $("#demoBand").hidden = !D.demo;
+    $("#fSector").innerHTML += D.sectors.map(s => `<option>${s.name}</option>`).join("");
+    const saved = store.get("filters", null);
+    if (saved) { for (const k in F) if (saved.f[k] != null) $(F[k]).value = saved.f[k]; activePreset = saved.activePreset; $$("#presets .chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.preset === activePreset)); }
+    renderOverview(); renderScreener(); renderSignals(); renderJournal();
+    const h = location.hash.slice(1);
+    show(TABS.includes(h) ? h : store.get("tab", "tongquan"));
+  }).catch(err => {
+    $("#asof").textContent = "Không tải được dữ liệu";
+    $("main").innerHTML = `<div class="panel empty">Không đọc được data/signals.json (${err.message}). Hãy chạy <span class="mono">python engine/build.py</span> để tạo dữ liệu.</div>`;
+  });
+})();
+</script>

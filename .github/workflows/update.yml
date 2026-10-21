@@ -1,0 +1,34 @@
+# Cập nhật dữ liệu sau giờ đóng cửa (15:30 giờ VN = 08:30 UTC) thứ 2–6 và đăng lên GitHub Pages.
+name: Cập nhật tín hiệu
+on:
+  schedule:
+    - cron: "45 8 * * 1-5"
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency: { group: pages, cancel-in-progress: true }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements.txt
+      - run: python engine/build.py --source VCI || python engine/build.py --source TCBS
+      - name: Đóng gói trang
+        run: |
+          mkdir -p _site/data
+          { echo '<!doctype html><html lang="vi"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>'; cat web/index.html; echo '</body></html>'; } > _site/index.html
+          cp web/data/signals.json _site/data/
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: _site }
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: { name: github-pages, url: "${{ steps.d.outputs.page_url }}" }
+    steps:
+      - id: d
+        uses: actions/deploy-pages@v4
