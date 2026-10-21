@@ -11,7 +11,8 @@ mục tiêu T1/T2, và nhật ký backtest so với mua và nắm giữ.
 ```
 engine/universe.py     danh sách mã theo ngành (sửa để thêm/bớt mã)
 engine/indicators.py   chỉ báo, điểm sức mạnh, quy tắc mua/bán, backtest
-engine/build.py        lấy dữ liệu (vnstock) và ghi web/data/signals.json
+engine/build.py        tính toán và ghi web/data/signals.json
+engine/sources.py      lấy giá từ API công khai (DNSE, Vietcap, TCBS)
 web/index.html         giao diện (một file, không cần build)
 .github/workflows/     tự cập nhật hằng ngày và đăng lên GitHub Pages
 ```
@@ -20,7 +21,7 @@ web/index.html         giao diện (một file, không cần build)
 
 ```bash
 pip install -r requirements.txt
-python engine/build.py          # dữ liệu thật (nguồn VCI; thêm --source TCBS nếu VCI lỗi)
+python engine/build.py          # dữ liệu thật từ API công khai DNSE, Vietcap, TCBS
 python engine/build.py --demo   # dữ liệu mô phỏng, không cần mạng
 cd web && python -m http.server 8000
 # mở http://localhost:8000

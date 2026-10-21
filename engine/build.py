@@ -1,6 +1,6 @@
 """Tạo web/data/signals.json cho giao diện.
 
-    python engine/build.py            # dữ liệu thật qua vnstock
+    python engine/build.py            # dữ liệu thật từ API công khai (DNSE, Vietcap, TCBS)
     python engine/build.py --demo     # dữ liệu mô phỏng, không cần mạng
 """
 import argparse
@@ -16,6 +16,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 import indicators as ind  # noqa: E402
+import sources  # noqa: E402
 from universe import INDEX, UNIVERSE, all_symbols, sector_of  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "web" / "data" / "signals.json"
@@ -25,48 +26,18 @@ CHART_BARS = 160
 
 # ---------- Nguồn dữ liệu ----------
 
-def fetch_vnstock(symbols, source="VCI"):
-    from vnstock import Vnstock
-
-    start = (date.today() - timedelta(days=HISTORY_DAYS)).isoformat()
-    end = date.today().isoformat()
-    prices, funda = {}, {}
+def fetch_real(symbols):
+    prices, used = {}, {}
     for sym in [INDEX] + symbols:
-        for attempt in range(3):
-            try:
-                st = Vnstock().stock(symbol=sym, source=source)
-                df = st.quote.history(start=start, end=end, interval="1D")
-                df["time"] = pd.to_datetime(df["time"])
-                prices[sym] = df.set_index("time")[["open", "high", "low", "close", "volume"]].astype(float)
-                if sym != INDEX:
-                    funda[sym] = fetch_ratios(st)
-                break
-            except Exception as e:  # mạng chập chờn hoặc bị giới hạn tần suất
-                print(f"  {sym}: lần {attempt + 1} lỗi {e}", file=sys.stderr)
-                time.sleep(2 + attempt * 3)
-        time.sleep(0.4)
-    return prices, funda
-
-
-def fetch_ratios(stock):
-    """P/E, P/B, ROE mới nhất. Cấu trúc bảng của vnstock đổi theo phiên bản nên dò theo tên cột."""
-    try:
-        df = stock.finance.ratio(period="year", lang="en", dropna=True)
-        df.columns = [" ".join(map(str, c)) if isinstance(c, tuple) else str(c) for c in df.columns]
-        row = df.iloc[0] if "yearReport" not in " ".join(df.columns) else df.sort_values(
-            [c for c in df.columns if "yearReport" in c][0], ascending=False).iloc[0]
-
-        def pick(*keys):
-            for col in df.columns:
-                low = col.lower()
-                if all(k in low for k in keys):
-                    v = row[col]
-                    return None if pd.isna(v) else float(v)
-            return None
-        roe = pick("roe")
-        return {"pe": pick("p/e"), "pb": pick("p/b"), "roe": roe * 100 if roe is not None and abs(roe) < 2 else roe}
-    except Exception:
-        return {"pe": None, "pb": None, "roe": None}
+        try:
+            prices[sym], src = sources.fetch(sym, is_index=(sym == INDEX), days=HISTORY_DAYS)
+            used[src] = used.get(src, 0) + 1
+        except Exception as e:
+            print(f"  {sym}: không lấy được dữ liệu ({e})", file=sys.stderr)
+        time.sleep(0.3)
+    print(f"Nguồn đã dùng: {used}, lấy được {len(prices)}/{len(symbols) + 1} mã")
+    # Chưa có nguồn chỉ số cơ bản miễn phí ổn định; giao diện hiện "–" cho P/E, P/B, ROE.
+    return prices, {}
 
 
 def demo_data(symbols, seed=6):
@@ -250,12 +221,13 @@ def build(prices, funda, demo):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--demo", action="store_true", help="dùng dữ liệu mô phỏng")
-    ap.add_argument("--source", default="VCI", help="nguồn vnstock: VCI hoặc TCBS")
     a = ap.parse_args()
     syms = all_symbols()
-    prices, funda = demo_data(syms) if a.demo else fetch_vnstock(syms, a.source)
+    prices, funda = demo_data(syms) if a.demo else fetch_real(syms)
     if INDEX not in prices:
         sys.exit("Không lấy được VNINDEX, dừng.")
+    if len(prices) - 1 < len(syms) // 2:
+        sys.exit(f"Chỉ lấy được {len(prices) - 1}/{len(syms)} mã, dừng để không đăng dữ liệu thiếu.")
     data = build(prices, funda, a.demo)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
