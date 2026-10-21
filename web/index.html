@@ -629,7 +629,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
   }
 
   /* ---------- Khởi động ---------- */
-  fetch("data/signals.json").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(data => {
+  fetch("data/signals.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(data => {
     D = data;
     $("#asof").innerHTML = `Dữ liệu đến phiên <b class="mono">${D.as_of}</b>`;
     $("#genAt").textContent = `Cập nhật lúc ${D.generated}. ${D.stocks.length} cổ phiếu trên HOSE, HNX và UPCoM.`;
