@@ -56,7 +56,22 @@ nav.tabs { display: flex; gap: 2px; flex-wrap: wrap; }
 nav.tabs button { font: 600 13px var(--body); color: var(--muted); background: none; border: 0; padding: 7px 12px; border-radius: 6px; cursor: pointer; }
 nav.tabs button:hover { color: var(--ink); background: var(--bg); }
 nav.tabs button[aria-selected="true"] { color: var(--accent); background: var(--accent-soft); }
-.asof { margin-left: auto; color: var(--muted); font-size: 12px; text-align: right; }
+.asof { margin-left: auto; color: var(--muted); font-size: 12px; text-align: right; display: grid; gap: 2px; justify-items: end; }
+.live { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--muted); }
+.live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.live[data-state="open"] { color: var(--up); }
+.live[data-state="open"]::before { background: var(--up); box-shadow: 0 0 0 3px var(--up-soft); animation: pulse 2s infinite; }
+.live[data-state="error"] { color: var(--down); }
+.live[data-state="error"]::before { background: var(--down); }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px transparent; } }
+td.flash-up { animation: flashUp 1.2s; } td.flash-down { animation: flashDown 1.2s; }
+@keyframes flashUp { from { background: var(--up-soft); } } @keyframes flashDown { from { background: var(--down-soft); } }
+.alerts { display: grid; gap: 0; max-height: 260px; overflow-y: auto; }
+.alert-row { display: grid; grid-template-columns: 52px 54px minmax(0, 1fr); gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); cursor: pointer; align-items: baseline; }
+.alert-row:last-child { border-bottom: 0; }
+.alert-row .tm { font: 12px var(--mono); color: var(--muted); }
+.alert-row .tk { font: 700 13px var(--mono); }
+.toast { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 30; background: var(--ink); color: var(--surface); padding: 10px 14px; border-radius: 8px; max-width: min(360px, calc(100vw - 32px)); font-size: 13px; box-shadow: 0 6px 24px rgb(0 0 0 / 0.2); }
 .demo-band { background: var(--ref-soft); color: var(--ink); border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .demo-band .wrap { padding-block: 6px; }
 .demo-band b { color: var(--ref); }
@@ -170,7 +185,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
 
 @media (max-width: 820px) {
   .overview { grid-template-columns: minmax(0, 1fr); }
-  .asof { margin-left: 0; text-align: left; width: 100%; }
+  .asof { margin-left: 0; text-align: left; width: 100%; justify-items: start; }
   .compare-row { grid-template-columns: 120px minmax(0, 1fr) 56px; }
   #chart { height: 280px; }
 }
@@ -191,7 +206,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
       <button role="tab" data-tab="nhatky">Nhật ký giao dịch</button>
       <button role="tab" data-tab="phuongphap">Phương pháp</button>
     </nav>
-    <div class="asof" id="asof">Đang tải dữ liệu…</div>
+    <div class="asof"><span id="live" class="live" data-state="off">Giá trực tiếp</span><span id="asof">Đang tải dữ liệu…</span></div>
   </div>
   <div class="demo-band" id="demoBand" hidden><div class="wrap"><b>Dữ liệu mô phỏng.</b> Giá và tín hiệu trên trang này được tạo ngẫu nhiên để xem thử giao diện, không phải giá thật của các mã. Chạy <span class="mono">engine/build.py</span> không có <span class="mono">--demo</span> để lấy dữ liệu thật.</div></div>
 </header>
@@ -210,6 +225,11 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
         <div class="section-head"><div><h2>Ngành mạnh nhất</h2><p class="sub">Điểm sức mạnh trung bình 0–10. Bấm ngành để lọc cổ phiếu.</p></div><button class="btn" data-goto="nganh">Tất cả ngành</button></div>
         <div class="sector-list" id="sectorList"></div>
       </div>
+    </div>
+    <div class="panel" style="margin-top:20px">
+      <div class="section-head"><div><h2>Cảnh báo trong phiên</h2><p class="sub">Mã chạm dừng lỗ, đạt T1/T2, hoặc vượt đỉnh 20 phiên kèm khối lượng lớn, tính theo giá khớp trực tiếp.</p></div>
+        <button class="btn" id="notifyBtn">Bật thông báo</button></div>
+      <div class="alerts" id="alertList" style="margin-top:8px"></div>
     </div>
     <div class="panel" style="margin-top:20px">
       <div class="section-head"><div><h2>Top cổ phiếu mạnh nhất</h2><p class="sub" id="topSub">10 mã có điểm sức mạnh cao nhất hôm nay. Bấm để xem biểu đồ.</p></div>
@@ -278,6 +298,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
       <p class="sub" style="margin-bottom:14px">Mọi chỉ số tính từ giá đóng cửa ngày, khối lượng và VN-Index. Quy tắc nằm trong <span class="mono">engine/indicators.py</span>, sửa ở đó là trang tự cập nhật lần chạy sau.</p>
       <div class="rules">
         <p><b>Phạm vi.</b> Mọi cổ phiếu đang giao dịch trên HOSE, HNX và UPCoM có ít nhất 130 phiên lịch sử, chia theo ngành ICB cấp 2 (ngành) và cấp 3 (ngành con). Tín hiệu mua/bán và nhật ký chỉ tính cho mã có giá trị giao dịch trung bình 20 phiên từ 1 tỷ đồng, vì mã ít thanh khoản dễ cho tín hiệu giả.</p>
+        <p><b>Cập nhật trong phiên.</b> Giá khớp, % thay đổi và cảnh báo lấy trực tiếp từ bảng giá mỗi 20 giây trong giờ giao dịch (9:00–11:30, 13:00–15:00). Xu hướng, RS, điểm và tín hiệu MUA/BÁN được tính lại cho toàn thị trường khoảng mỗi 10 phút; trang tự tải bản mới, không cần làm mới. Trong phiên, nến hôm nay chưa đóng nên tín hiệu có thể đổi đến hết phiên; bản chốt chạy lúc 15:45.</p>
         <p><b>Xu hướng ngắn hạn.</b> Tăng khi giá trên EMA20 và EMA20 đi lên so với 5 phiên trước. Giảm khi ngược lại. Còn lại là đi ngang.</p>
         <p><b>Xu hướng trung hạn.</b> Tăng khi giá trên EMA50, EMA50 trên MA200 và EMA50 đi lên so với 10 phiên trước.</p>
         <p><b>RS (sức mạnh tương đối) 1–99.</b> Hiệu suất có trọng số 40% quý gần nhất và 20% cho mỗi quý trước trong 12 tháng, rồi xếp hạng phần trăm trên toàn thị trường. RS 90 nghĩa là mạnh hơn 90% số mã còn lại. Dấu ↗ cạnh RS là đường giá/VN-Index đang ở đỉnh 3 tháng.</p>
@@ -299,6 +320,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
 </footer>
 
 <div class="drawer-bg" id="drawerBg" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
 <aside class="drawer" id="drawer" hidden aria-label="Chi tiết mã"></aside>
 
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
@@ -392,7 +414,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
   const COLS = [
     { k: "sym", t: "Mã", r: s => `<button class="star" data-star="${s.sym}" aria-pressed="${watch.has(s.sym)}" aria-label="Theo dõi ${s.sym}">★</button>${s.sym}<span class="ex-tag">${s.ex || ""}</span>`, cls: "sym" },
     { k: "sector", t: "Ngành", r: s => `<span class="sub" title="${s.sector}">${s.ind || s.sector}</span>` },
-    { k: "price", t: "Giá", n: 1, r: s => `<span class="${chgCls(s.chg)}">${fmt(s.price)}</span>` },
+    { k: "price", t: "Giá", n: 1, r: s => `<span class="${chgCls(s.chg)}">${fmt(s.price)}</span>`, cls: "px" },
     { k: "chg", t: "%", n: 1, r: s => `<span class="${chgCls(s.chg)}">${pct(s.chg)}</span>` },
     { k: "chg20", t: "20 phiên", n: 1, r: s => `<span class="${s.chg20 > 0 ? "up" : s.chg20 < 0 ? "down" : "ref"}">${pct(s.chg20, 1)}</span>` },
     { k: "trend_s", t: "XH ngắn", r: s => trendPill(s.trend_s) },
@@ -422,7 +444,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
     const total = rows.length;
     if (sortable) { rows = rows.slice(0, shown); $("#screenMore").hidden = total <= shown; $("#moreBtn").textContent = `Xem thêm (còn ${total - shown} mã)`; }
     table.innerHTML = `<thead><tr>${COLS.map(c => `<th class="${c.n ? "n" : ""}" data-k="${c.k}" ${sortable && sort.k === c.k ? `data-dir="${sort.dir}"` : ""}>${c.t}</th>`).join("")}</tr></thead>
-      <tbody>${rows.length ? rows.map(s => `<tr data-sym="${s.sym}">${COLS.map(c => `<td class="${c.n ? "n" : ""} ${c.cls || ""}">${c.r(s)}</td>`).join("")}</tr>`).join("")
+      <tbody>${rows.length ? rows.map(s => `<tr data-sym="${s.sym}">${COLS.map(c => `<td class="${c.n ? "n" : ""} ${c.cls || ""}${c.cls === "px" && s._tick ? " flash-" + s._tick : ""}">${c.r(s)}</td>`).join("")}</tr>`).join("")
         : `<tr><td colspan="${COLS.length}" class="empty">Không có mã nào khớp bộ lọc. Thử nới điều kiện hoặc bấm Xoá lọc.</td></tr>`}</tbody>`;
     if (sortable) $$("th", table).forEach(th => th.addEventListener("click", () => {
       sort = { k: th.dataset.k, dir: sort.k === th.dataset.k && sort.dir === "desc" ? "asc" : "desc" };
@@ -628,12 +650,126 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
     chart.timeScale().fitContent();
   }
 
+
+  /* ---------- Giá trực tiếp và cảnh báo ---------- */
+  // Bảng giá CafeF cho phép trình duyệt đọc trực tiếp; center 1 = HOSE, 2 = HNX, 9 = UPCoM.
+  const LIVE_URLS = [1, 2, 9].map(c => `https://banggia.cafef.vn/stockhandler.ashx?center=${c}`);
+  const LIVE_MS = 20000, DATA_MS = 120000;
+  const vnNow = () => new Date(Date.now() + 7 * 3600e3);
+  const hhmm = d => d.toISOString().slice(11, 19);
+  const today = () => vnNow().toISOString().slice(0, 10);
+  function phase() {
+    const d = vnNow(), wd = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes();
+    if (wd === 0 || wd === 6) return "closed";
+    if ((m >= 540 && m < 690) || (m >= 780 && m < 900)) return "open";
+    if (m >= 690 && m < 780) return "break";
+    return "closed";
+  }
+  // Phần phiên đã trôi qua (0–1), để so khối lượng trong phiên với KL trung bình cả ngày
+  function sessionFraction() {
+    const d = vnNow(), m = d.getUTCHours() * 60 + d.getUTCMinutes();
+    const done = Math.max(0, Math.min(m, 690) - 540) + Math.max(0, Math.min(m, 900) - 780);
+    return Math.max(0.15, done / 240);
+  }
+  let alerts = (store.get("alerts", null) || {});
+  if (alerts.day !== today()) alerts = { day: today(), list: [], seen: {} };
+  function setLive(state, text) { const el = $("#live"); el.dataset.state = state; el.textContent = text; }
+
+  async function pollQuotes() {
+    const results = await Promise.allSettled(LIVE_URLS.map(u => fetch(u, { cache: "no-store" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })));
+    const q = {};
+    for (const r of results) if (r.status === "fulfilled" && Array.isArray(r.value))
+      for (const x of r.value) if (x && x.a) q[x.a] = { price: +x.l || 0, ref: +x.b || 0, vol: +x.n || 0, high: +x.v || 0, low: +x.w || 0 };
+    if (!Object.keys(q).length) throw new Error("no data");
+    return q;
+  }
+  function applyQuotes(q) {
+    const ph = phase(), frac = sessionFraction(), fired = [];
+    for (const s of D.stocks) {
+      const x = q[s.sym];
+      if (!x || !x.price || !x.ref) continue;
+      s._tick = x.price > s.price ? "up" : x.price < s.price ? "down" : "";
+      s.price = x.price; s.chg = +((x.price / x.ref - 1) * 100).toFixed(2); s.dayVol = x.vol;
+      const g = s.sig, open = g && (s.signal === "MUA" || s.signal === "NẮM GIỮ");
+      if (open) g.pnl = +((x.price / g.entry - 1) * 100).toFixed(1);
+      if (ph !== "open") continue;
+      const fire = (kind, text, tone) => {
+        const key = s.sym + ":" + kind;
+        if (alerts.seen[key]) return;
+        alerts.seen[key] = 1;
+        const a = { t: hhmm(vnNow()), sym: s.sym, text, tone, price: x.price };
+        alerts.list.unshift(a); fired.push(a);
+      };
+      if (open) {
+        if (x.low && x.low <= g.stop) fire("stop", `Chạm dừng lỗ ${fmt(g.stop)}`, "down");
+        else if (x.high >= g.t2) fire("t2", `Đạt mục tiêu T2 ${fmt(g.t2)}`, "up");
+        else if (!g.t1_hit && x.high >= g.t1) fire("t1", `Đạt mục tiêu T1 ${fmt(g.t1)}`, "up");
+      } else if (s.hh20 && s.value_bn >= D.min_value_bn && x.price > s.hh20 && x.vol >= 1.3 * s.vol20 * frac && s.trend_m !== "Giảm") {
+        fire("bo", `Vượt đỉnh 20 phiên ${fmt(s.hh20)} kèm KL lớn, có thể kích hoạt MUA`, "up");
+      }
+    }
+    D.market.n_up = D.stocks.filter(s => s.chg > 0).length;
+    D.market.n_down = D.stocks.filter(s => s.chg < 0).length;
+    alerts.list = alerts.list.slice(0, 200);
+    store.set("alerts", alerts);
+    return fired;
+  }
+  function renderAlerts() {
+    $("#alertList").innerHTML = alerts.list.length
+      ? alerts.list.map(a => `<div class="alert-row" data-sym="${a.sym}"><span class="tm">${a.t.slice(0, 5)}</span><span class="tk ${a.tone}">${a.sym}</span><span>${a.text} <span class="sub num">giá ${fmt(a.price)}</span></span></div>`).join("")
+      : `<div class="empty">${phase() === "open" ? "Chưa có cảnh báo nào trong phiên hôm nay." : "Cảnh báo chỉ chạy trong giờ giao dịch 9:00–11:30 và 13:00–15:00."}</div>`;
+  }
+  let toastTimer;
+  function notify(list) {
+    if (!list.length) return;
+    const a = list[0], more = list.length > 1 ? ` (+${list.length - 1} cảnh báo khác)` : "";
+    const el = $("#toast"); el.textContent = `${a.sym}: ${a.text}${more}`; el.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.hidden = true, 6000);
+    try { if (window.Notification && Notification.permission === "granted") list.slice(0, 3).forEach(x => new Notification(`${x.sym}: ${x.text}`, { body: `Giá ${fmt(x.price)} lúc ${x.t}`, tag: x.sym })); } catch {}
+  }
+  $("#notifyBtn").addEventListener("click", async () => {
+    try { const p = await Notification.requestPermission(); $("#notifyBtn").textContent = p === "granted" ? "Đã bật thông báo" : "Trình duyệt chặn thông báo"; }
+    catch { $("#notifyBtn").textContent = "Trình duyệt không hỗ trợ"; }
+  });
+  function rerender() {
+    renderOverview(); renderScreener(true); renderSignals(); renderAlerts();
+    const open = $("#drawer").hidden ? null : D.stocks.find(x => x.sym === $("#drawer .tk")?.textContent);
+    const hdr = open && $("#drawer .d-head .num");
+    if (hdr) { hdr.className = `num ${chgCls(open.chg)}`; hdr.textContent = `${fmt(open.price)} ${pct(open.chg)}`; }
+  }
+  let liveTimer = null;
+  async function liveTick() {
+    const ph = phase();
+    try {
+      const q = await pollQuotes();
+      const fired = applyQuotes(q);
+      rerender(); notify(fired);
+      setLive(ph === "open" ? "open" : "off", ph === "open" ? `Trực tiếp · ${hhmm(vnNow())}` : ph === "break" ? "Nghỉ trưa" : "Ngoài giờ giao dịch");
+    } catch {
+      setLive("error", "Không lấy được giá trực tiếp");
+    }
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(liveTick, ph === "open" ? LIVE_MS : 300000);
+  }
+  // Tải lại tín hiệu khi GitHub tính xong lượt mới (mỗi 10 phút trong phiên)
+  async function refreshData() {
+    try {
+      const r = await fetch("data/signals.json", { cache: "no-cache" });
+      const nd = await r.json();
+      if (nd.generated !== D.generated) { boot(nd); }
+    } catch {}
+    setTimeout(refreshData, DATA_MS);
+  }
+
   /* ---------- Khởi động ---------- */
-  fetch("data/signals.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(data => {
+  let booted = false;
+  function boot(data) {
     D = data;
-    $("#asof").innerHTML = `Dữ liệu đến phiên <b class="mono">${D.as_of}</b>`;
+    $("#asof").innerHTML = `Tín hiệu tính lúc <b class="mono">${D.generated.slice(11)}</b> ${D.intraday ? "(trong phiên)" : "phiên " + D.as_of}`;
     $("#genAt").textContent = `Cập nhật lúc ${D.generated}. ${D.stocks.length} cổ phiếu trên HOSE, HNX và UPCoM.`;
     $("#demoBand").hidden = !D.demo;
+    if (booted) { renderOverview(); renderSectors(); renderJournal(); liveTick(); return; }
+    booted = true;
     $("#fSector").innerHTML += D.sectors.map(s => `<option>${s.name}</option>`).join("");
     resetF();
     const saved = store.get("filters", null);
@@ -641,7 +777,10 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
     renderOverview(); renderSectors(); renderScreener(); renderSignals(); renderJournal();
     const h = location.hash.slice(1);
     show(TABS.includes(h) ? h : store.get("tab", "tongquan"));
-  }).catch(err => {
+    renderAlerts();
+    if (!D.demo) { liveTick(); setTimeout(refreshData, DATA_MS); }
+  }
+  fetch("data/signals.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(boot).catch(err => {
     $("#asof").textContent = "Không tải được dữ liệu";
     $("main").innerHTML = `<div class="panel empty">Không đọc được data/signals.json (${err.message}). Hãy chạy <span class="mono">python engine/build.py</span> để tạo dữ liệu.</div>`;
   });

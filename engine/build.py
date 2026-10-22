@@ -10,7 +10,7 @@ import math
 import shutil
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +27,13 @@ CHART_BARS = 160
 MIN_SESSIONS = 130
 # Mã thanh khoản thấp dễ cho tín hiệu giả, nên chỉ phát tín hiệu và tính nhật ký khi GTGD TB20 đạt ngưỡng này.
 MIN_SIGNAL_VALUE_BN = 1.0
+VN_TZ = timezone(timedelta(hours=7))
+
+
+def in_session(now=None):
+    """Đang trong giờ giao dịch (9:00–15:00 giờ VN, thứ 2–6), tức nến hôm nay còn dở dang."""
+    now = now or datetime.now(VN_TZ)
+    return now.weekday() < 5 and 9 <= now.hour < 15
 
 
 # ---------- Nguồn dữ liệu ----------
@@ -90,7 +97,7 @@ def r2(x, nd=2):
     return None if x is None or (isinstance(x, float) and math.isnan(x)) else round(float(x), nd)
 
 
-def snapshot(meta, df, index_close):
+def snapshot(meta, df, index_close, intraday=False):
     e = ind.enrich(df)
     last = e.iloc[-1]
     ts = ind.trend_short(last, e["ema20"].iloc[-6])
@@ -132,6 +139,9 @@ def snapshot(meta, df, index_close):
         "_rs_raw": ind.rs_raw(df["close"]),
         "rs_line_high": bool(rs_line.iloc[-1] >= rs_line.iloc[-63:].max() * 0.995),
         "cmf": r2(last["cmf"]), "mfi": r2(last["mfi"], 0), "vol_ratio": r2(vol_ratio),
+        # Đỉnh và KL trung bình 20 phiên đã hoàn tất, để trang so với giá trực tiếp
+        "hh20": r2(e["high"].iloc[-21:-1].max() if intraday else e["high"].iloc[-20:].max()),
+        "vol20": int((e["volume"].iloc[-21:-1] if intraday else e["volume"].iloc[-20:]).mean()),
         "value_bn": r2(value_bn, 1), "flow": ind.money_flow_label(float(last["cmf"]), vol_ratio),
         "mtf": ind.multi_tf(df), "rsi": r2(last["rsi"], 0),
         "signal": signal, "sig": sig, "_trades": trades,
@@ -208,6 +218,8 @@ def build(lst, prices, funda, demo):
     index_df = prices[INDEX]
     rows, charts, above50 = [], {}, []
     t0 = time.time()
+    today = datetime.now(VN_TZ).date()
+    intraday = in_session() and index_df.index[-1].date() == today
     for meta in lst:
         df = prices.get(meta["sym"])
         if df is None or len(df) < MIN_SESSIONS or df["close"].iloc[-1] <= 0:
@@ -216,7 +228,7 @@ def build(lst, prices, funda, demo):
         if (index_df.index[-1] - df.index[-1]).days > 10:
             continue
         try:
-            row, chart, e50 = snapshot(meta, df, index_df["close"])
+            row, chart, e50 = snapshot(meta, df, index_df["close"], intraday)
         except Exception as ex:
             print(f"  {meta['sym']}: bỏ qua ({ex})", file=sys.stderr)
             continue
@@ -245,9 +257,9 @@ def build(lst, prices, funda, demo):
     for r in rows:
         by_ex[r["ex"]] = by_ex.get(r["ex"], 0) + 1
     data = {
-        "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "generated": datetime.now(VN_TZ).strftime("%Y-%m-%d %H:%M"),
         "as_of": index_df.index[-1].strftime("%Y-%m-%d"),
-        "demo": demo, "min_value_bn": MIN_SIGNAL_VALUE_BN, "by_exchange": by_ex,
+        "demo": demo, "intraday": bool(intraday), "min_value_bn": MIN_SIGNAL_VALUE_BN, "by_exchange": by_ex,
         "market": {
             "index": r2(il["close"]), "chg": r2((il["close"] / ie["close"].iloc[-2] - 1) * 100),
             "trend_s": ind.trend_short(il, ie["ema20"].iloc[-6]), "trend_m": ind.trend_mid(il, ie["ema50"].iloc[-11]),

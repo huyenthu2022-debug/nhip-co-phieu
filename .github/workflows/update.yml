@@ -1,8 +1,9 @@
-# Cập nhật dữ liệu sau giờ đóng cửa (15:30 giờ VN = 08:30 UTC) thứ 2–6 và đăng lên GitHub Pages.
+# Tính lại tín hiệu mỗi 10 phút trong phiên và sau giờ đóng cửa (thứ 2–6), rồi đăng lên GitHub Pages.
 name: Cập nhật tín hiệu
 on:
   schedule:
-    - cron: "45 8 * * 1-5"
+    - cron: "*/10 2-7 * * 1-5"   # mỗi 10 phút trong phiên 9:00–14:59 giờ VN
+    - cron: "45 8 * * 1-5"       # bản chốt sau giờ đóng cửa
   workflow_dispatch:
 permissions:
   contents: write
