@@ -1,25 +1,18 @@
-"""Kiểm tra API nào cho phép trình duyệt (CORS) lấy giá trực tiếp từ trang github.io."""
-import urllib.error
+"""Kiểm tra bảng giá CafeF theo từng sàn từ máy chủ GitHub."""
+import json
 import urllib.request
 
-ORIGIN = "https://huyenthu2022-debug.github.io"
-URLS = [
-    ("GET", "https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from=1792000000&to=1793000000&symbol=FPT&resolution=1D"),
-    ("GET", "https://trading.vietcap.com.vn/api/price/symbols/getAll"),
-    ("GET", "https://iboard-query.ssi.com.vn/stock/exchange/hose"),
-    ("GET", "https://iboard-query.ssi.com.vn/v2/stock/group/VN30"),
-    ("GET", "https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/second-tc-price?tickers=FPT,HPG"),
-    ("GET", "https://api-finfo.vndirect.com.vn/v4/stock_prices?sort=date&q=code:FPT&size=1"),
-    ("GET", "https://bgapidatafeed.vps.com.vn/getliststockdata/FPT,HPG"),
-    ("GET", "https://banggia.cafef.vn/stockhandler.ashx?center=1"),
-]
-for method, url in URLS:
-    req = urllib.request.Request(url, headers={"Origin": ORIGIN, "User-Agent": "Mozilla/5.0"})
+for c in (1, 2, 3, 9):
+    url = f"https://banggia.cafef.vn/stockhandler.ashx?center={c}"
     try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Origin": "https://huyenthu2022-debug.github.io"})
         with urllib.request.urlopen(req, timeout=20) as r:
-            body = r.read(300).decode("utf-8", "replace")
-            print(f"== {r.status} ACAO={r.headers.get('Access-Control-Allow-Origin')} {url}\n   {body[:250]}")
-    except urllib.error.HTTPError as e:
-        print(f"== {e.code} ACAO={e.headers.get('Access-Control-Allow-Origin')} {url}")
+            j = json.loads(r.read().decode())
+        live = [x for x in j if x.get("l")]
+        print(f"center={c}: {len(j)} mã, {len(live)} có giá khớp; mẫu:", [(x["a"], x.get("b"), x.get("l"), x.get("n"), x.get("Time")) for x in j[:4]])
+        for s in ("FPT", "SHS", "BSR", "VCB", "PVS"):
+            m = [x for x in j if x.get("a") == s]
+            if m:
+                print("   ", s, {k: m[0][k] for k in ("b", "l", "k", "n", "v", "w", "Time") if k in m[0]})
     except Exception as e:
-        print(f"== LỖI {e} {url}")
+        print(f"center={c}: LỖI {e}")
