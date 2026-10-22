@@ -2,7 +2,7 @@
 name: Cập nhật tín hiệu
 on:
   schedule:
-    - cron: "*/10 2-7 * * 1-5"   # mỗi 10 phút trong phiên 9:00–14:59 giờ VN
+    - cron: "7-59/10 2-7 * * 1-5"  # mỗi 10 phút trong phiên (lệch khỏi đầu giờ vì GitHub hay bỏ lượt lúc đó)
     - cron: "45 8 * * 1-5"       # bản chốt sau giờ đóng cửa
   workflow_dispatch:
 permissions:
