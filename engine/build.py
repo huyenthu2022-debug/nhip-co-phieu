@@ -49,7 +49,7 @@ def fetch_real(limit=None):
         lst = lst[:limit]
     prices = {}
     try:
-        prices[INDEX], _ = sources.fetch(INDEX, is_index=True, days=HISTORY_DAYS)
+        prices[INDEX], _ = sources.fetch(INDEX, is_index=True, days=HISTORY_DAYS, order=("vietcap", "dnse", "tcbs"))
     except Exception as e:
         sys.exit(f"Không lấy được VNINDEX ({e}), dừng.")
     prices.update(sources.fetch_many([r["sym"] for r in lst], days=HISTORY_DAYS))
@@ -219,7 +219,9 @@ def build(lst, prices, funda, demo):
     rows, charts, above50 = [], {}, []
     t0 = time.time()
     today = datetime.now(VN_TZ).date()
-    intraday = in_session() and index_df.index[-1].date() == today
+    # VN-Index từ một số nguồn chỉ có nến hôm nay sau giờ đóng cửa, nên xét theo nến của cổ phiếu
+    last_days = [df.index[-1].date() for k, df in prices.items() if k != INDEX]
+    intraday = in_session() and bool(last_days) and max(last_days) == today
     for meta in lst:
         df = prices.get(meta["sym"])
         if df is None or len(df) < MIN_SESSIONS or df["close"].iloc[-1] <= 0:
