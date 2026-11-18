@@ -1,3 +1,4 @@
+//@version=5
 // Nhịp Vàng: tín hiệu XAUUSD 3 khung chạy trực tiếp trên TradingView (cùng quy tắc với engine/gold.py).
 // Cách dùng: mở biểu đồ OANDA:XAUUSD khung 15 phút → Pine Editor → dán toàn bộ → Add to chart.
 // Cảnh báo: Alerts → Create alert → Condition "Nhịp Vàng" → "Any alert() function call" → bật thông báo app/email.
@@ -7,7 +8,6 @@
 //   M15 vào lệnh: nến (hiện tại hoặc trước) chọc thủng đáy 20 nến trước đó rồi nến hiện tại đóng cửa quay lại, nến tăng: MUA.
 //   SL sau râu nến quét + 0,1 ATR, tối thiểu 15 giá, bỏ lệnh nếu cần hơn 20 giá. Tới 1:1 dời SL về giá vào, chốt 1:3.
 // Tín hiệu tham khảo, không phải lời khuyên đầu tư.
-//@version=5
 indicator("Nhịp Vàng · H4 xu hướng · H1 vùng · M15 quét thanh khoản", shorttitle = "Nhịp Vàng", overlay = true, max_labels_count = 500)
 
 tpR       = input.float(3.0, "Chốt lời (R)", minval = 1, step = 0.5)
