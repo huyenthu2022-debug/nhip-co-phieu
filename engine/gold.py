@@ -15,7 +15,7 @@ Quy tắc, chỉ dùng nến đã đóng của khung lớn (không nhìn trướ
                   nến hiện tại đóng cửa quay lại trên mức đó và là nến tăng: MUA. BÁN ngược lại với đỉnh.
   Dừng lỗ sau râu nến quét thêm 0,1 ATR M15, tối thiểu 15 giá; bỏ lệnh nếu dừng lỗ cần rộng hơn 20 giá
   (15 và 20 giá tính ở mức vàng 3.850, tự co giãn theo giá).
-  Giá đi được 1R (1:1) thì dời dừng lỗ về giá vào; chốt lời toàn bộ ở 4R (R:R 1:4).
+  Giá đi được 1R (1:1) thì dời dừng lỗ về giá vào; chốt lời toàn bộ ở 3R (R:R 1:3).
 
 Được chọn sau khi so khoảng 60 cách (dừng lỗ M15/H1/cố định, lọc D1, chốt 1:2 đến 1:5, chốt một nửa,
 kéo dừng lỗ, vào lệnh theo động lượng hoặc sau quét thanh khoản) trên 2 năm nến M15 PAXG/USDT:
@@ -40,7 +40,7 @@ from indicators import atr, ema, macd_hist, rsi  # noqa: E402
 OUT = Path(__file__).resolve().parent.parent / "web" / "data" / "gold.json"
 VN_TZ = timezone(timedelta(hours=7))
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"}
-BE_R, TP_R = 1.0, 4.0  # mốc dời dừng lỗ về hoà vốn, mục tiêu chốt lời (theo R)
+BE_R, TP_R = 1.0, 3.0  # mốc dời dừng lỗ về hoà vốn, mục tiêu chốt lời (theo R)
 SWEEP_LOOK, SWEEP_RECENT, SL_BUF_ATR = 20, 1, 0.1   # đáy/đỉnh 20 nến M15; nến quét: hiện tại hoặc ngay trước
 REF_PRICE, MIN_RISK_USD, MAX_RISK_USD = 3850.0, 15.0, 20.0  # dừng lỗ 15–20 giá ở mức 3.850, co giãn theo giá
 CHART = {"m15": 400, "h1": 360, "h4": 300}
@@ -197,7 +197,7 @@ def setups(m15, h4tr, zone):
 
 
 def plan(side, i, m15):
-    """Điểm vào, dừng lỗ, mốc hoà vốn (1:1) và chốt lời (1:4) cho tín hiệu ở nến M15 thứ i."""
+    """Điểm vào, dừng lỗ, mốc hoà vốn (1:1) và chốt lời (1:3) cho tín hiệu ở nến M15 thứ i."""
     r = m15.iloc[i]
     entry, risk = float(r["close"]), float(risk_of(side, r)[0])
     d = 1 if side == "MUA" else -1
@@ -208,7 +208,7 @@ def plan(side, i, m15):
 
 def backtest(m15, buy, sell, start=200):
     """Một lệnh mỗi lúc. Cùng nến chạm cả dừng lỗ và mục tiêu thì tính dừng lỗ trước (thận trọng).
-    Kết quả theo R: dừng lỗ = -1R; đã qua 1:1 rồi quay về giá vào = 0R; chạm mục tiêu = +4R."""
+    Kết quả theo R: dừng lỗ = -1R; đã qua 1:1 rồi quay về giá vào = 0R; chạm mục tiêu = +3R."""
     hi, lo, cl = (m15[k].to_numpy() for k in ("high", "low", "close"))
     t = m15.index
     trades, pos = [], None
@@ -223,7 +223,7 @@ def backtest(m15, buy, sell, start=200):
             if hit_sl:
                 res = (0.0 if pos["t1"] else -1.0), ("Hoà vốn" if pos["t1"] else "Dừng lỗ"), pos["sl"]
             elif hit_tp:
-                res = TP_R, "Đạt mục tiêu 1:4", pos["tp"]
+                res = TP_R, f"Đạt mục tiêu 1:{TP_R:g}", pos["tp"]
             else:
                 if hit_be and not pos["t1"]:
                     pos["t1"], pos["sl"] = True, pos["entry"]
@@ -357,7 +357,7 @@ def telegram(data, prev):
     if f and f["id"] not in sent:
         icon = "🟢" if f["side"] == "MUA" else "🔴"
         msgs.append((f["id"], f"{icon} XAUUSD {f['side']} {f['entry']} (sau khi quét thanh khoản {f.get('liq')})\nDừng lỗ: {f['sl']}\nDời SL về giá vào khi tới (1:1): {f['be']}\n"
-                     f"Chốt lời (1:4): {f['tp']}\nH4 {data['tf']['H4']} · H1 vùng {data['tf']['H1']} · M15 xác nhận\n"
+                     f"Chốt lời (1:{TP_R:g}): {f['tp']}\nH4 {data['tf']['H4']} · H1 vùng {data['tf']['H1']} · M15 xác nhận\n"
                      f"Nến M15 {f['t_in'].replace('T', ' ')} (giờ VN). Không phải khuyến nghị đầu tư."))
     for t in data["trades"][:3]:
         key = f"x-{t['side']}-{t['t_in']}"
