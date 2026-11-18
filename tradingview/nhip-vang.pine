@@ -6,6 +6,7 @@
 //   H4  xu hướng: Tăng khi giá > EMA50 > EMA200, Giảm khi ngược lại.
 //   H1  vùng: MUA khi EMA20 > EMA50, giá trên EMA50, đã chạm EMA20 trong 3 nến H1 gần nhất, RSI < 70 (BÁN ngược lại).
 //   M15 vào lệnh: nến (hiện tại hoặc trước) chọc thủng đáy 20 nến trước đó rồi nến hiện tại đóng cửa quay lại, nến tăng: MUA.
+//   Lọc chất lượng: MUA chỉ khi RSI M15 <= 50 (BÁN khi >= 50), bỏ nến mở từ 21h đến trước 3h giờ VN.
 //   SL sau râu nến quét + 0,1 ATR, tối thiểu 15 giá, bỏ lệnh nếu cần hơn 20 giá. Tới 1:1 dời SL về giá vào, chốt 1:3.
 // Tín hiệu tham khảo, không phải lời khuyên đầu tư.
 indicator("Nhịp Vàng · H4 xu hướng · H1 vùng · M15 quét thanh khoản", shorttitle = "Nhịp Vàng", overlay = true, max_labels_count = 500, max_boxes_count = 500, max_lines_count = 500)
@@ -16,6 +17,8 @@ look      = input.int(20, "Số nến M15 tìm đáy/đỉnh thanh khoản", min
 minRisk   = input.float(15, "SL tối thiểu (giá, quy về mức 3.850)")
 maxRisk   = input.float(20, "SL tối đa (giá, quy về mức 3.850)")
 bufAtr    = input.float(0.1, "Đệm SL sau râu nến (ATR)", step = 0.05)
+rsiMax    = input.int(50, "Lọc: MUA khi RSI M15 ≤ (BÁN khi ≥ 100 − số này)", minval = 30, maxval = 100)
+useHours  = input.bool(true, "Lọc: bỏ vào lệnh từ 21h đến trước 3h (giờ VN)")
 showTable = input.bool(true, "Hiện bảng trạng thái")
 showHist  = input.bool(true, "Giữ vùng SL/TP của các lệnh đã đóng")
 cUp       = input.color(color.new(#089981, 0), "Màu chốt lời")
@@ -49,8 +52,11 @@ wHi   = math.max(high, high[1])
 sc    = close / 3850.0
 riskB = math.max(close - wLo + bufAtr * atr, minRisk * sc)
 riskS = math.max(wHi - close + bufAtr * atr, minRisk * sc)
-buySig  = barstate.isconfirmed and h4 == 1 and h1 == 1 and wLo < liqLo and close > liqLo and close > open and riskB <= maxRisk * sc
-sellSig = barstate.isconfirmed and h4 == -1 and h1 == -1 and wHi > liqHi and close < liqHi and close < open and riskS <= maxRisk * sc
+rsi15 = ta.rsi(close, 14)
+hVN   = hour(time, "Asia/Ho_Chi_Minh")
+hourOk = not useHours or not (hVN >= 21 or hVN < 3)
+buySig  = barstate.isconfirmed and hourOk and h4 == 1 and h1 == 1 and wLo < liqLo and close > liqLo and close > open and rsi15 <= rsiMax and riskB <= maxRisk * sc
+sellSig = barstate.isconfirmed and hourOk and h4 == -1 and h1 == -1 and wHi > liqHi and close < liqHi and close < open and rsi15 >= 100 - rsiMax and riskS <= maxRisk * sc
 
 // ---------- Quản lý lệnh: SL trước, rồi chốt lời, tới 1:1 dời SL về giá vào, tín hiệu ngược thì đóng ----------
 var int   pos   = 0

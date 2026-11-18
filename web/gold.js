@@ -91,7 +91,8 @@
 
   /* ---------- Tín hiệu realtime: tính lại 3 khung ngay trong trình duyệt khi mỗi nến M15 đóng ----------
      Cùng quy tắc với engine/gold.py, trên nến PAXG/USDT (Binance, cập nhật tức thì) dời theo giá XAU giao ngay. */
-  const RR = { BE: 1, TP: 3 }, SWEEP = 20, BUF = 0.1, REF = 3850, MIN_R = 15, MAX_R = 20;
+  const RR = { BE: 1, TP: 3 }, SWEEP = 20, BUF = 0.1, REF = 3850, MIN_R = 15, MAX_R = 20, RSI_MAX = 50, SKIP_H = [21, 22, 23, 0, 1, 2];
+  const hourVN = t => new Date((t + 7 * 3600) * 1000).getUTCHours();
   const KL = "https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval=";
   let RT = null, rtTimer;
   async function klines(iv, n, off) {
@@ -137,8 +138,9 @@
       if (liqLo[i] == null) continue;
       const c = m.c[i], sc = c / REF;
       let side = null, raw;
-      if (T4[i] === "Tăng" && Z1[i] === "MUA" && wLo[i] < liqLo[i] && c > liqLo[i] && c > m.o[i]) { side = "MUA"; raw = c - wLo[i]; }
-      else if (T4[i] === "Giảm" && Z1[i] === "BÁN" && wHi[i] > liqHi[i] && c < liqHi[i] && c < m.o[i]) { side = "BÁN"; raw = wHi[i] - c; }
+      if (SKIP_H.includes(hourVN(m.t[i]))) continue;
+      if (T4[i] === "Tăng" && Z1[i] === "MUA" && wLo[i] < liqLo[i] && c > liqLo[i] && c > m.o[i] && rsm[i] <= RSI_MAX) { side = "MUA"; raw = c - wLo[i]; }
+      else if (T4[i] === "Giảm" && Z1[i] === "BÁN" && wHi[i] > liqHi[i] && c < liqHi[i] && c < m.o[i] && rsm[i] >= 100 - RSI_MAX) { side = "BÁN"; raw = wHi[i] - c; }
       if (!side) continue;
       const risk = Math.max(raw + BUF * atr[i], MIN_R * sc);
       if (risk > MAX_R * sc) continue;
@@ -169,7 +171,7 @@
     let status;
     if (t4 === "Đi ngang") status = "H4 đi ngang: đứng ngoài, chờ xu hướng rõ.";
     else if (z1 !== (t4 === "Tăng" ? "MUA" : "BÁN")) status = `H4 ${t4.toLowerCase()}: chờ giá H1 hồi về EMA20 để vào vùng ${t4 === "Tăng" ? "MUA" : "BÁN"}.`;
-    else status = `H4 ${t4.toLowerCase()}, H1 đang ở vùng ${z1}: chờ M15 quét ${z1 === "MUA" ? "đáy" : "đỉnh"} ${(z1 === "MUA" ? liqLo[last] : liqHi[last]).toFixed(2)} rồi đóng cửa quay lại để vào lệnh.`;
+    else status = `${SKIP_H.includes(hourVN(Date.now() / 1000)) ? "Ngoài giờ vào lệnh (21h–3h giờ VN). " : ""}H4 ${t4.toLowerCase()}, H1 đang ở vùng ${z1}: chờ M15 quét ${z1 === "MUA" ? "đáy" : "đỉnh"} ${(z1 === "MUA" ? liqLo[last] : liqHi[last]).toFixed(2)} rồi đóng cửa quay lại để vào lệnh.`;
     return {
       tf: { H4: t4, H1: z1 || "Chưa có vùng", M15: m15 }, status, fresh,
       open: pos ? { ...out(pos), be_hit: pos.t1, sl_now: r2j(pos.slNow) } : null,
@@ -212,7 +214,7 @@
     const t = o || f;
     if (!t) {
       el.innerHTML = `<div class="label">Trạng thái</div><div class="side" style="color:var(--muted)">Chờ tín hiệu</div>
-        <p class="sub">Chưa có lệnh mở. Hệ thống chỉ vào lệnh khi H4 có xu hướng rõ, H1 hồi về EMA20 và giá M15 quét thanh khoản (chọc thủng đáy/đỉnh 20 nến gần nhất) rồi đóng cửa quay lại.</p>
+        <p class="sub">Chưa có lệnh mở. Hệ thống chỉ vào lệnh khi H4 có xu hướng rõ, H1 hồi về EMA20 và giá M15 quét thanh khoản (chọc thủng đáy/đỉnh 20 nến gần nhất) rồi đóng cửa quay lại, RSI M15 chưa quá mua/bán theo chiều lệnh, ngoài khung 21h–3h.</p>
         <p><b>${G.status}</b></p>
         ${lastTrade()}`;
       return;
@@ -246,7 +248,7 @@
   }
   function paintStats() {
     const s = G.stats;
-    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến M15 từ ${s.from.slice(0, 10)} (nguồn miễn phí chỉ có 60 ngày M15), một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kiểm định dài hơn trên 2 năm M15 của PAXG/USDT: 197 lệnh, +0,21R mỗi lệnh, hệ số lợi nhuận 1,48, sụt giảm lớn nhất 9R. Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
+    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến M15 từ ${s.from.slice(0, 10)} (nguồn miễn phí chỉ có 60 ngày M15), một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kiểm định dài hơn trên 2 năm M15 của PAXG/USDT (đã lọc RSI và giờ): 148 lệnh, +0,37R mỗi lệnh, hệ số lợi nhuận 1,93, sụt giảm lớn nhất 6R. Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
     const card = (l, v, sub = "") => `<div class="stat"><div class="label">${l}</div><div class="v">${v}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
     $("#gStats").innerHTML = s.n ? [
       card("Số lệnh", s.n),

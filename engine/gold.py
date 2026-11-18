@@ -13,13 +13,15 @@ Quy tắc, chỉ dùng nến đã đóng của khung lớn (không nhìn trướ
   M15 điểm vào:   chờ giá QUÉT THANH KHOẢN. Trong vùng H1 cùng chiều H4, nến M15 (hiện tại hoặc ngay trước)
                   chọc thủng đáy thấp nhất của 20 nến M15 trước đó (nơi đặt dừng lỗ của nhiều người), rồi
                   nến hiện tại đóng cửa quay lại trên mức đó và là nến tăng: MUA. BÁN ngược lại với đỉnh.
+  Lọc chất lượng: MUA chỉ khi RSI M15 <= 50 (BÁN khi >= 50) và bỏ nến mở từ 21h đến trước 3h giờ VN.
   Dừng lỗ sau râu nến quét thêm 0,1 ATR M15, tối thiểu 15 giá; bỏ lệnh nếu dừng lỗ cần rộng hơn 20 giá
   (15 và 20 giá tính ở mức vàng 3.850, tự co giãn theo giá).
   Giá đi được 1R (1:1) thì dời dừng lỗ về giá vào; chốt lời toàn bộ ở 3R (R:R 1:3).
 
 Được chọn sau khi so khoảng 60 cách (dừng lỗ M15/H1/cố định, lọc D1, chốt 1:2 đến 1:5, chốt một nửa,
 kéo dừng lỗ, vào lệnh theo động lượng hoặc sau quét thanh khoản) trên 2 năm nến M15 PAXG/USDT:
-Chốt 1:3: 197 lệnh, +0,21R mỗi lệnh, hệ số lợi nhuận 1,48, lãi đều ở cả hai năm (+22R/+20R).
+Chốt 1:3 có lọc chất lượng: 148 lệnh, +0,37R mỗi lệnh, hệ số lợi nhuận 1,93, sụt giảm lớn nhất 6R
+(chưa lọc: 197 lệnh, +0,21R, hệ số 1,48, sụt giảm 9R).
 """
 import argparse
 import json
@@ -42,7 +44,9 @@ VN_TZ = timezone(timedelta(hours=7))
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"}
 BE_R, TP_R = 1.0, 3.0  # mốc dời dừng lỗ về hoà vốn, mục tiêu chốt lời (theo R)
 SWEEP_LOOK, SWEEP_RECENT, SL_BUF_ATR = 20, 1, 0.1   # đáy/đỉnh 20 nến M15; nến quét: hiện tại hoặc ngay trước
-REF_PRICE, MIN_RISK_USD, MAX_RISK_USD = 3850.0, 15.0, 20.0  # dừng lỗ 15–20 giá ở mức 3.850, co giãn theo giá
+REF_PRICE, MIN_RISK_USD, MAX_RISK_USD = 3850.0, 15.0, 20.0
+RSI_MAX = 50                       # lọc chất lượng: MUA khi RSI M15 <= 50 (giá vừa hồi thật), BÁN khi >= 50
+SKIP_HOURS_VN = {21, 22, 23, 0, 1, 2}  # bỏ nến M15 mở từ 21h đến trước 3h sáng giờ VN (Mỹ mở cửa, cuối phiên Mỹ)  # dừng lỗ 15–20 giá ở mức 3.850, co giãn theo giá
 CHART = {"m15": 400, "h1": 360, "h4": 300}
 OHLC = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
@@ -184,8 +188,11 @@ def risk_of(side, row):
 
 def setups(m15, h4tr, zone):
     c, o = m15["close"], m15["open"]
-    buy = (h4tr == "Tăng") & (zone == "MUA") & (m15["wick_lo"] < m15["liq_lo"]) & (c > m15["liq_lo"]) & (c > o)
-    sell = (h4tr == "Giảm") & (zone == "BÁN") & (m15["wick_hi"] > m15["liq_hi"]) & (c < m15["liq_hi"]) & (c < o)
+    hour_ok = ~pd.Series((m15.index + pd.Timedelta(hours=7)).hour, index=m15.index).isin(SKIP_HOURS_VN)
+    buy = (h4tr == "Tăng") & (zone == "MUA") & (m15["wick_lo"] < m15["liq_lo"]) & (c > m15["liq_lo"]) & (c > o) \
+        & (m15["rsi"] <= RSI_MAX) & hour_ok
+    sell = (h4tr == "Giảm") & (zone == "BÁN") & (m15["wick_hi"] > m15["liq_hi"]) & (c < m15["liq_hi"]) & (c < o) \
+        & (m15["rsi"] >= 100 - RSI_MAX) & hour_ok
     buy, sell = buy.fillna(False).to_numpy(copy=True), sell.fillna(False).to_numpy(copy=True)
     # Bỏ tín hiệu cần dừng lỗ rộng hơn 20 giá
     for arr, side in ((buy, "MUA"), (sell, "BÁN")):
@@ -330,7 +337,8 @@ def build(h1_raw, m15_raw, meta):
         status = f"H4 {t4.lower()}: chờ giá H1 hồi về EMA20 để vào vùng {'MUA' if t4 == 'Tăng' else 'BÁN'}."
     else:
         lv = lm["liq_lo"] if z1 == "MUA" else lm["liq_hi"]
-        status = (f"H4 {t4.lower()}, H1 đang ở vùng {z1}: chờ M15 quét {'đáy' if z1 == 'MUA' else 'đỉnh'} "
+        status = (("Ngoài giờ vào lệnh (21h–3h giờ VN). " if (now + pd.Timedelta(hours=7)).hour in SKIP_HOURS_VN else "") +
+                  f"H4 {t4.lower()}, H1 đang ở vùng {z1}: chờ M15 quét {'đáy' if z1 == 'MUA' else 'đỉnh'} "
                   f"{lv:.2f} rồi đóng cửa quay lại để vào lệnh.")
     s = stats(trades)
     return {

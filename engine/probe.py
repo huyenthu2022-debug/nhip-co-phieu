@@ -1,121 +1,61 @@
-"""Thử bộ lọc chất lượng điểm vào cho hệ quét thanh khoản (chốt 1:3) trên 2 năm PAXG và 60 ngày GC=F."""
+"""So khớp tín hiệu realtime trong trình duyệt (web/gold.js) với engine Python trên cùng nến PAXG/USDT."""
+import json
+import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 import gold  # noqa: E402
-from indicators import ema  # noqa: E402
 
-H1, H4, D1 = pd.Timedelta(hours=1), pd.Timedelta(hours=4), pd.Timedelta(days=1)
-
-
-def prep(h1r, m15r):
-    m = gold.add_sweep(gold.add_ind(m15r))
-    h1 = gold.add_ind(h1r)
-    h4 = gold.add_ind(h1r.resample("4h", origin="epoch").agg(gold.OHLC).dropna())
-    d1 = h1r.resample("1D").agg(gold.OHLC).dropna()
-    d1["ema20"], d1["ema50"] = ema(d1["close"], 20), ema(d1["close"], 50)
-    h4tr = gold.closed_on(h4.apply(gold.trend_of, axis=1), H4, m.index).fillna("Đi ngang")
-    zone = gold.closed_on(gold.h1_zones(h1), H1, m.index).fillna("")
-    b, s = gold.setups(m, h4tr, zone)
-    a = m["atr"]
-    rng = (m["high"] - m["low"]).replace(0, np.nan)
-    f = pd.DataFrame(index=m.index)
-    f["dir"] = np.where(b, 1, np.where(s, -1, 0))
-    d = f["dir"]
-    f["depth"] = np.where(d > 0, (m["liq_lo"] - m["wick_lo"]) / a, (m["wick_hi"] - m["liq_hi"]) / a)
-    f["reclaim"] = np.where(d > 0, (m["close"] - m["liq_lo"]) / a, (m["liq_hi"] - m["close"]) / a)
-    f["body"] = (m["close"] - m["open"]).abs() / rng
-    f["cpos"] = np.where(d > 0, (m["close"] - m["low"]) / rng, (m["high"] - m["close"]) / rng)
-    f["rsi"] = np.where(d > 0, m["rsi"], 100 - m["rsi"])          # thấp = quá bán theo chiều lệnh
-    lo_age = m["low"].shift(2).rolling(20).apply(lambda x: 19 - np.argmin(x), raw=True)
-    hi_age = m["high"].shift(2).rolling(20).apply(lambda x: 19 - np.argmax(x), raw=True)
-    f["age"] = np.where(d > 0, lo_age, hi_age)                      # số nến kể từ khi đáy/đỉnh thanh khoản hình thành
-    f["hour"] = (m.index + pd.Timedelta(hours=7)).hour
-    f["atrq"] = a / a.rolling(960).median()
-    h1e = gold.closed_on(h1["ema20"], H1, m.index)
-    h1a = gold.closed_on(h1["atr"], H1, m.index)
-    f["h1dist"] = d * (m["close"] - h1e) / h1a
-    d1c = gold.closed_on(d1["close"], D1, m.index)
-    d1e = gold.closed_on(d1["ema50"], D1, m.index)
-    f["d1"] = np.sign(d1c - d1e) * d
-    raw = np.where(d > 0, m["close"] - m["wick_lo"], m["wick_hi"] - m["close"]) + 0.1 * a
-    f["rawrisk"] = raw * gold.REF_PRICE / m["close"]
-    f["macd"] = np.sign(m["macdh"] - m["macdh"].shift(1)) * d     # động lượng M15 quay đầu theo chiều lệnh
-    return m, b, s, f
+ROOT = Path(__file__).resolve().parent.parent
 
 
-def run(m, b, s, mask, start):
-    mk = mask.to_numpy() if hasattr(mask, "to_numpy") else mask
-    tr, _ = gold.backtest(m, b & mk, s & mk, start)
-    if len(tr) < 5:
-        return None
-    r = np.array([x["r"] for x in tr])
-    h = len(r) // 2
-    eq = np.cumsum(r)
-    dd = (np.maximum.accumulate(np.r_[0, eq])[1:] - eq).max()
-    pf = r[r > 0].sum() / max(-r[r < 0].sum(), 1e-9)
-    return dict(n=len(r), win=(r > 0).mean() * 100, loss=(r < 0).mean() * 100, avg=r.mean(), tot=r.sum(), pf=pf, dd=dd,
-                h1=r[:h].sum(), h2=r[h:].sum())
+def kl(iv, n):
+    now = pd.Timestamp.now(tz="UTC").value // 10**6
+    k = [x for x in gold._get(f"https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval={iv}&limit={n}") if x[6] < now]
+    js = {"t": [x[0] / 1000 for x in k], **{c: [float(x[j]) for x in k] for c, j in (("o", 1), ("h", 2), ("l", 3), ("c", 4))}}
+    df = pd.DataFrame({"open": js["o"], "high": js["h"], "low": js["l"], "close": js["c"], "volume": 0.0},
+                      index=pd.to_datetime(js["t"], unit="s", utc=True))
+    return js, df
 
 
+(j15, m), (j1, h1), (j4, h4) = kl("15m", 1000), kl("1h", 500), kl("4h", 1000)
+Path("/tmp/k.json").write_text(json.dumps({"m15": j15, "h1": j1, "h4": j4}))
+js = json.loads(subprocess.run(["node", str(ROOT / "engine/rt_check.js"), str(ROOT / "web/gold.js"), "/tmp/k.json"],
+                               capture_output=True, text=True, check=True).stdout)
+
+m = gold.add_sweep(gold.add_ind(m))
+h1i, h4i = gold.add_ind(h1), gold.add_ind(h4)
+h4tr = gold.closed_on(h4i.apply(gold.trend_of, axis=1), pd.Timedelta(hours=4), m.index).fillna("Đi ngang")
+zone = gold.closed_on(gold.h1_zones(h1i), pd.Timedelta(hours=1), m.index).fillna("")
+buy, sell = gold.setups(m, h4tr, zone)
+trades, pos = gold.backtest(m, buy, sell, start=200)
+py_sigs = [int(t.timestamp()) for t, b_, s_ in zip(m.index, buy, sell) if b_ or s_]
+py_tr = [int(x["t_in"].timestamp()) for x in trades]
+print("Tín hiệu  Python:", len(py_sigs), " JS:", len(js["sigs"]), " khớp:", py_sigs == [int(x) for x in js["sigs"]])
+print("Lệnh      Python:", len(py_tr), " JS:", len(js["trades"]), " khớp:", py_tr == [int(x) for x in js["trades"]])
+print("Lệnh mở   Python:", pos and (pos["side"], gold.iso(pos["t_in"]), round(pos["sl"], 2)), " JS:", js["open"])
+print("Khung JS:", js["tf"], js["status"], "RSI", js["rsi_m15"], js["rsi_h1"], "nến", js["bar"])
+print("Python RSI cuối:", round(m["rsi"].iloc[-1], 2), round(h1i["rsi"].iloc[-1], 2))
+print("Tín hiệu gần nhất (giờ VN):", [gold.iso(pd.Timestamp(t, unit="s", tz="UTC")) for t in py_sigs[-6:]])
+print("Khác nhau:", sorted(set(py_sigs) ^ {int(x) for x in js["sigs"]})[:10])
+
+# Kiểm định engine sau khi thêm lọc chất lượng
 gold.TP_R = 3.0
 spot, _ = gold.spot_price()
-P = prep(gold.binance("1h", 20000), gold.binance("15m", 70000))
-gh1, _ = gold.shift_to_spot(gold.clean(gold.yahoo("1h", "730d")), spot)
-gm15, _ = gold.shift_to_spot(gold.clean(gold.yahoo("15m", "60d")), spot)
-G = prep(gh1, gm15)
-
-def V(fn):
-    return fn
-variants = {"gốc": lambda f: f["dir"] != 99}
-for t in (0.1, 0.2, 0.3, 0.5): variants[f"quét sâu ≥{t}ATR"] = (lambda t: lambda f: f["depth"] >= t)(t)
-for t in (1.0, 1.5, 2.0): variants[f"quét nông ≤{t}ATR"] = (lambda t: lambda f: f["depth"] <= t)(t)
-for t in (0.1, 0.2, 0.3): variants[f"đóng lại ≥{t}ATR"] = (lambda t: lambda f: f["reclaim"] >= t)(t)
-for t in (0.4, 0.5, 0.6): variants[f"thân nến ≥{t}"] = (lambda t: lambda f: f["body"] >= t)(t)
-for t in (0.6, 0.7, 0.8): variants[f"đóng gần đỉnh ≥{t}"] = (lambda t: lambda f: f["cpos"] >= t)(t)
-for t in (40, 45, 50): variants[f"RSI theo chiều ≤{t}"] = (lambda t: lambda f: f["rsi"] <= t)(t)
-for t in (3, 5, 8): variants[f"đáy thanh khoản cũ ≥{t} nến"] = (lambda t: lambda f: f["age"] >= t)(t)
-for t in (0.7, 1.5): variants[f"ATR so trung vị ≤{t}" if t > 1 else f"ATR so trung vị ≥{t}"] = (lambda t: lambda f: f["atrq"] <= t if t > 1 else f["atrq"] >= t)(t)
-for t in (0.5, 1.0): variants[f"gần EMA20 H1 ≤{t}ATR"] = (lambda t: lambda f: f["h1dist"] <= t)(t)
-variants["D1 cùng chiều"] = lambda f: f["d1"] > 0
-for t in (12, 15, 18): variants[f"SL gốc ≤{t} (chưa nới)"] = (lambda t: lambda f: f["rawrisk"] <= t)(t)
-variants["MACD M15 quay đầu"] = lambda f: f["macd"] > 0
-variants["bỏ 22h–4h VN"] = lambda f: ~f["hour"].isin([22, 23, 0, 1, 2, 3])
-variants["bỏ 19h–23h VN (Mỹ mở)"] = lambda f: ~f["hour"].isin([19, 20, 21, 22])
-variants["chỉ 6h–18h VN"] = lambda f: f["hour"].between(6, 18)
-variants["bỏ 13h–15h VN"] = lambda f: ~f["hour"].isin([13, 14])
-
-def show(name, mask_fn):
-    a = run(P[0], P[1], P[2], mask_fn(P[3]).fillna(False), 2000)
-    g = run(G[0], G[1], G[2], mask_fn(G[3]).fillna(False), 200)
-    if not a:
-        print(f"{name:28s} quá ít lệnh"); return
-    gs = f"GC {g['n']:2d}L {g['tot']:+5.1f}R pf{g['pf']:.2f}" if g else "GC –"
-    print(f"{name:28s} n={a['n']:3d} thắng {a['win']:4.1f}% thua {a['loss']:4.1f}% TB {a['avg']:+.2f}R tổng {a['tot']:+5.1f}R "
-          f"pf {a['pf']:.2f} dd {a['dd']:4.1f} | nửa {a['h1']:+5.1f}/{a['h2']:+5.1f} | {gs}")
-
-rsi50 = lambda f: f["rsi"] <= 50
-no2124 = lambda f: ~f["hour"].isin([21, 22, 23])
-no2103 = lambda f: ~f["hour"].isin([21, 22, 23, 0, 1, 2])
-day = lambda f: f["hour"].between(6, 18)
-sl15 = lambda f: f["rawrisk"] <= 15
-AND = lambda *fs: (lambda f: np.logical_and.reduce([x(f).fillna(False).to_numpy() for x in fs]))
-cands = {"gốc": variants["gốc"], "A RSI≤50": rsi50, "B RSI≤50 + bỏ 21–24h": AND(rsi50, no2124),
-         "C RSI≤50 + bỏ 21–3h": AND(rsi50, no2103), "D RSI≤50 + 6–18h": AND(rsi50, day),
-         "E RSI≤50 + bỏ 21–24h + SL gốc≤15": AND(rsi50, no2124, sl15), "F bỏ 21–24h": no2124,
-         "G RSI≤45 + bỏ 21–24h": AND(lambda f: f["rsi"] <= 45, no2124), "H RSI≤55 + bỏ 21–24h": AND(lambda f: f["rsi"] <= 55, no2124)}
-def thirds(fn):
-    tr, _ = gold.backtest(P[0], P[1] & fn(P[3]), P[2] & fn(P[3]), 2000)
-    r = pd.Series([x["r"] for x in tr], index=[x["t_in"] for x in tr])
-    q = r.groupby(r.index.to_period("Q").astype(str)).sum()
-    return " ".join(f"{v:+.0f}" for v in q.values), (q > 0).sum(), len(q)
-print("##### Ứng viên")
-for k, fn in cands.items():
-    fn2 = (lambda fn: lambda f: pd.Series(np.asarray(fn(f)), index=f.index).fillna(False).astype(bool))(fn)
-    show(k, fn2)
-    t, pos, n = thirds(lambda f: fn2(f).to_numpy())
-    print("     theo quý:", t, f"({pos}/{n} quý lãi)")
+for tag, h1r, m15r, start in (("PAXG 2 năm", gold.binance("1h", 20000), gold.binance("15m", 70000), 2000),
+                               ("GC=F 60 ngày", gold.shift_to_spot(gold.clean(gold.yahoo("1h", "730d")), spot)[0],
+                                gold.shift_to_spot(gold.clean(gold.yahoo("15m", "60d")), spot)[0], 200)):
+    mm = gold.add_sweep(gold.add_ind(m15r))
+    hh = gold.add_ind(h1r)
+    h44 = gold.add_ind(h1r.resample("4h", origin="epoch").agg(gold.OHLC).dropna())
+    t4s = gold.closed_on(h44.apply(gold.trend_of, axis=1), pd.Timedelta(hours=4), mm.index).fillna("Đi ngang")
+    zs = gold.closed_on(gold.h1_zones(hh), pd.Timedelta(hours=1), mm.index).fillna("")
+    bb, ss = gold.setups(mm, t4s, zs)
+    tr, _ = gold.backtest(mm, bb, ss, start)
+    print(tag, gold.stats(tr), "| 5 lệnh gần nhất:", [(gold.iso(x["t_in"]), x["side"], x["reason"], x["r"]) for x in tr[-5:]])
+h1, m15, meta = gold.fetch_real()
+d = gold.build(h1, m15, meta)
+print("build OK:", d["status"], d["stats"])
