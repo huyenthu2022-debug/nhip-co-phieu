@@ -98,26 +98,21 @@ gh1, _ = gold.shift_to_spot(gold.clean(gold.yahoo("1h", "730d")), spot)
 gm15, _ = gold.shift_to_spot(gold.clean(gold.yahoo("15m", "60d")), spot)
 G = prep(gh1, gm15)
 V = {
-    "hiện tại: hoà vốn 1R, chốt 3R": {},
-    "hoà vốn 1.5R, chốt 3R": dict(be=1.5),
-    "hoà vốn 2R, chốt 3R": dict(be=2.0),
-    "không dời hoà vốn, chốt 3R": dict(be=0),
-    "hoà vốn 1.5R, chốt 4R": dict(be=1.5, tp=4),
-    "chốt 50% ở 1R, còn lại 3R": dict(pfrac=.5, pat=1.0, be=0),
-    "chốt 50% ở 1.5R, còn lại 3R": dict(pfrac=.5, pat=1.5, be=0),
-    "chốt 50% ở 1.5R, còn lại 4R": dict(pfrac=.5, pat=1.5, be=0, tp=4),
-    "chốt 50% ở 2R, còn lại 4R": dict(pfrac=.5, pat=2.0, be=0, tp=4),
-    "chốt 50% ở 2R, còn lại 5R": dict(pfrac=.5, pat=2.0, be=0, tp=5),
-    "chốt 30% ở 1.5R, còn lại 4R": dict(pfrac=.3, pat=1.5, be=0, tp=4),
-    "chốt 50% ở 1.5R, còn lại kéo SL 1R, tối đa 6R": dict(pfrac=.5, pat=1.5, be=0, tp=6, trail=(2.0, 1.0)),
-    "hoà vốn 1R, kéo SL cách 1.5R từ 2.5R, tối đa 6R": dict(be=1.0, tp=6, trail=(2.5, 1.5)),
-    "lệnh chờ hồi 30% râu, chốt 3R": dict(limit=.3),
-    "lệnh chờ hồi 50% râu, chốt 3R": dict(limit=.5),
-    "lệnh chờ hồi 50% râu, hoà vốn 1.5R, chốt 3R": dict(limit=.5, be=1.5),
-    "lệnh chờ hồi 50% râu, chốt 50% ở 1.5R, còn 4R": dict(limit=.5, pfrac=.5, pat=1.5, be=0, tp=4),
-    "lệnh chờ hồi 50% râu, SL tối thiểu 12, chốt 3R": dict(limit=.5, minr=12),
-    "lệnh chờ hồi 50% râu, SL tối thiểu 12, 50% ở 1.5R, 4R": dict(limit=.5, minr=12, pfrac=.5, pat=1.5, be=0, tp=4),
-    "lệnh chờ hồi 70% râu, chốt 3R": dict(limit=.7),
+    "hiện tại": {},
+    "chờ 40%, 3R": dict(limit=.4), "chờ 50%, 3R": dict(limit=.5), "chờ 60%, 3R": dict(limit=.6),
+    "chờ 50% tối đa 2 nến, 3R": dict(limit=.5, wait=2), "chờ 50% tối đa 8 nến, 3R": dict(limit=.5, wait=8),
+    "chờ 50%, 4R": dict(limit=.5, tp=4),
+    "kéo SL 1.5R từ 2.5R, tối đa 6R": dict(tp=6, trail=(2.5, 1.5)),
+    "chờ 50% + kéo SL 1.5R từ 2.5R, tối đa 6R": dict(limit=.5, tp=6, trail=(2.5, 1.5)),
+    "chờ 50% + kéo SL 1R từ 2R, tối đa 6R": dict(limit=.5, tp=6, trail=(2.0, 1.0)),
+    "chờ 50% + kéo SL 1.5R từ 3R, tối đa 8R": dict(limit=.5, tp=8, trail=(3.0, 1.5)),
+    "chờ 50% + kéo SL 2R từ 3R, tối đa 8R": dict(limit=.5, tp=8, trail=(3.0, 2.0)),
+    "chờ 40% + kéo SL 1.5R từ 2.5R, tối đa 6R": dict(limit=.4, tp=6, trail=(2.5, 1.5)),
+    "chờ 60% + kéo SL 1.5R từ 2.5R, tối đa 6R": dict(limit=.6, tp=6, trail=(2.5, 1.5)),
 }
 for k, kw in V.items():
-    line(k, sim(*P, 2000, **kw), sim(*G, 200, **kw))
+    r = sim(*P, 2000, **kw)
+    line(k, r, sim(*G, 200, **kw))
+    q = r.groupby(r.index.to_period("Q").astype(str)).sum()
+    w = r[r > 0]
+    print("      theo quý:", " ".join(f"{v:+.0f}" for v in q.values), f"({(q > 0).sum()}/{len(q)}) | lệnh thắng TB {w.mean():.2f}R | đạt ≥3R: {(r >= 3).mean()*100:.0f}%")
