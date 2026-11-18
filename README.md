@@ -34,8 +34,9 @@ cd web && python -m http.server 8000
 
 Tab **Vàng XAUUSD** báo điểm MUA/BÁN theo hệ 3 khung: H4 xác định xu hướng (giá > EMA50 > EMA200 là tăng),
 H1 xem xét vùng hồi (EMA20 > EMA50 và giá vừa chạm EMA20), M15 báo điểm vào (nến M15 vượt lại EMA20 kèm RSI cắt 50
-hoặc MACD hist đổi dấu). Dừng lỗ sau đáy/đỉnh 12 nến M15 thêm 0,3 ATR; TP1 = 2R (R:R 1:2, chốt một nửa và dời
-dừng lỗ về giá vào), TP2 = 3R (R:R 1:3). Workflow tính lại mỗi 15 phút từ tối Chủ nhật đến tối thứ 6 (giờ UTC).
+hoặc MACD hist đổi dấu). Dừng lỗ sau đáy/đỉnh 6 nến H1 thêm 0,2 ATR H1; giá đi được 1:1 thì dời dừng lỗ về
+giá vào; chốt lời toàn bộ ở R:R 1:4. Cách quản lý này được chọn sau khi so 40 cách trên 2 năm nến M15 PAXG/USDT
+(207 lệnh, +0,28R mỗi lệnh, hệ số lợi nhuận 1,55, lãi đều ở cả hai năm). Workflow tính lại mỗi 15 phút từ tối Chủ nhật đến tối thứ 6 (giờ UTC).
 Giá trực tiếp trên trang lấy từ gold-api.com.
 
 Nhận tín hiệu qua Telegram (tuỳ chọn): tạo bot với @BotFather, nhắn cho bot một tin, lấy chat id, rồi thêm hai
