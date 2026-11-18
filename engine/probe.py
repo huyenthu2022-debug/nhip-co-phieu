@@ -1,24 +1,13 @@
-"""Kiểm tra các nguồn giá vàng XAUUSD từ máy chủ GitHub (dữ liệu + CORS cho trình duyệt)."""
-import urllib.request
+"""Chạy thử engine vàng với dữ liệu thật từ máy chủ GitHub."""
+import json
+import runpy
+import sys
+from pathlib import Path
 
-ORIGIN = "https://huyenthu2022-debug.github.io"
-URLS = [
-    "https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD=X?interval=1h&range=5d",
-    "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1h&range=5d",
-    "https://query2.finance.yahoo.com/v8/finance/chart/GC=F?interval=1h&range=730d",
-    "https://stooq.com/q/d/l/?s=xauusd&i=d",
-    "https://stooq.com/q/l/?s=xauusd&f=sd2t2ohlc&h&e=csv",
-    "https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=3",
-    "https://api.gold-api.com/price/XAU",
-    "https://data-asg.goldprice.org/dbXRates/USD",
-    "https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD",
-]
-for url in URLS:
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Origin": ORIGIN})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            body = r.read().decode(errors="replace")
-            print(f"OK {r.status} cors={r.headers.get('Access-Control-Allow-Origin')} len={len(body)} {url}")
-            print("    ", body[:300].replace("\n", " | "))
-    except Exception as e:
-        print(f"LỖI {url}: {e}")
+sys.argv = ["gold.py"]
+runpy.run_path(str(Path(__file__).parent / "gold.py"), run_name="__main__")
+d = json.loads((Path(__file__).resolve().parent.parent / "web/data/gold.json").read_text())
+print({k: d[k] for k in ("source", "spot_source", "spot", "basis", "price", "day_chg", "trend", "fresh", "open", "stats", "stats_90d")})
+for t in d["trades"][:8]:
+    print(t)
+print("h1 bars", len(d["h1"]["t"]), "h4 bars", len(d["h4"]["t"]))
