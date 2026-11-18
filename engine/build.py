@@ -19,7 +19,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent))
 import indicators as ind  # noqa: E402
 import sources  # noqa: E402
-from universe import INDEX, fallback_listing  # noqa: E402
+from universe import FALLBACK_GROUPS, INDEX, fallback_listing  # noqa: E402
 
 DATA = Path(__file__).resolve().parent.parent / "web" / "data"
 HISTORY_DAYS = 365 * 3
@@ -272,6 +272,7 @@ def build(lst, prices, funda, demo):
             "chart": {"d": [d.strftime("%Y-%m-%d") for d in ie.index[-CHART_BARS:]],
                       "c": [r2(v) for v in ie["close"].iloc[-CHART_BARS:]]},
         },
+        "groups": FALLBACK_GROUPS if demo else sources.groups(),
         "sectors": sector_stats(rows), "stocks": sorted(rows, key=lambda r: -r["score"]), "journal": jr,
     }
     return data, charts
