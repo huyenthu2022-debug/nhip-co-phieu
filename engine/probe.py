@@ -2,6 +2,7 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -27,11 +28,47 @@ def dump(tag, tr):
                                          round(t["exit"], 2), t["r"], t["reason"])))
 
 
+
+
+def report(tag, tr):
+    df = pd.DataFrame(tr)
+    df["t_vn"] = df["t_in"].dt.tz_convert("Asia/Ho_Chi_Minh")
+    df["month"] = df["t_vn"].dt.strftime("%Y-%m")
+    h = df["t_in"].dt.hour  # giờ UTC
+    df["phiên"] = np.where(h < 7, "Á (7h-14h VN)", np.where(h < 13, "Âu (14h-20h VN)", "Mỹ (20h-7h VN)"))
+    df["kq"] = np.where(df["r"] > 0, "thắng", np.where(df["r"] == 0, "hoà", "thua"))
+    df["sl_usd"] = (df["entry"] - df["sl"]).abs()
+    df["giờ giữ"] = (df["t_out"] - df["t_in"]).dt.total_seconds() / 3600
+
+    def agg(g):
+        r = g["r"]
+        return pd.Series({"lệnh": len(r), "thắng": (r > 0).sum(), "hoà": (r == 0).sum(), "thua": (r < 0).sum(),
+                          "tổng R": r.sum(), "TB R": round(r.mean(), 2)})
+    print(f"##### {tag}")
+    print("TỔNG:", agg(df).to_dict(), "| SL TB", round(df.sl_usd.mean(), 1), "giá, trung vị", round(df.sl_usd.median(), 1),
+          "| giữ lệnh TB", round(df["giờ giữ"].mean(), 1), "giờ, trung vị", round(df["giờ giữ"].median(), 1))
+    print("THEO CHIỀU\n" + df.groupby("side").apply(agg, include_groups=False).to_string())
+    print("THEO PHIÊN\n" + df.groupby("phiên").apply(agg, include_groups=False).to_string())
+    print("THEO THÁNG\n" + df.groupby("month").apply(agg, include_groups=False).to_string())
+    k = (df["r"] < 0).astype(int).to_numpy()
+    run = best = 0
+    for x in k:
+        run = run + 1 if x else 0
+        best = max(best, run)
+    nw = (df["r"] <= 0).astype(int).to_numpy()
+    run = best2 = 0
+    for x in nw:
+        run = run + 1 if x else 0
+        best2 = max(best2, run)
+    eq = df["r"].cumsum()
+    print("chuỗi thua liên tiếp dài nhất:", best, "| chuỗi lệnh không thắng dài nhất:", best2,
+          "| sụt giảm lớn nhất:", round((eq.cummax().clip(lower=0) - eq).max(), 1), "R")
+
+
 spot, _ = gold.spot_price()
 gh1, _ = gold.shift_to_spot(gold.clean(gold.yahoo("1h", "730d")), spot)
 gm15, _ = gold.shift_to_spot(gold.clean(gold.yahoo("15m", "60d")), spot)
 tr, pos = run(gh1, gm15)
-dump("GC=F 60 ngày", tr)
-print("đang mở:", pos)
+report("GC=F 60 ngày", tr)
 tr2, _ = run(gold.binance("1h", 20000), gold.binance("15m", 70000))
-dump("PAXG 2 năm", tr2)
+report("PAXG 2 năm", tr2)
