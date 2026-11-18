@@ -115,6 +115,22 @@ def listing():
     return out
 
 
+def groups():
+    """Thành phần các rổ chỉ số (VN30, HNX30) cho bảng giá; rổ nào lỗi thì lấy danh sách dự phòng."""
+    from universe import FALLBACK_GROUPS
+    out = {}
+    for g in FALLBACK_GROUPS:
+        try:
+            syms = [r["symbol"] for r in _get(f"https://trading.vietcap.com.vn/api/price/symbols/getByGroup?group={g}", extra=VCI_HEADERS)]
+            if len(syms) < 20:
+                raise RuntimeError(f"chỉ {len(syms)} mã")
+            out[g] = sorted(syms)
+        except Exception as e:
+            print(f"  Không lấy được rổ {g} ({e}), dùng danh sách dự phòng")
+            out[g] = FALLBACK_GROUPS[g]
+    return out
+
+
 def fetch_many(symbols, days=365 * 3, workers=10, log=print):
     """Giá cho nhiều mã, lấy song song. API Vietcap chỉ trả đúng khi hỏi từng mã một."""
     from concurrent.futures import ThreadPoolExecutor

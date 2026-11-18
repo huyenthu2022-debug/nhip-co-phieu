@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bảng giá · Nhịp Cổ Phiếu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Bảng điện: một bảng lớn chiếm gần hết màn hình, dải chỉ số ở trên, nhóm mã ở thanh công cụ.
+   Màu giá theo quy ước sàn VN: tím trần, xanh lơ sàn, vàng tham chiếu, xanh lá tăng, đỏ giảm. */
+:root {
+  --bg: #eef1f4; --surface: #ffffff; --surface-2: #f6f8fa; --ink: #14202e; --muted: #5d6b7a; --line: #d6dde5; --grid: #e6ebf0;
+  --accent: #1d4ed8; --accent-soft: #e2e9fb;
+  --up: #0a8a4f; --down: #d1293d; --ref: #b7791f; --ceil: #8b3fc7; --floor: #0e9bb5;
+  --up-flash: #b9e8cf; --down-flash: #f7c3ca;
+  --display: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1016; --surface: #121a22; --surface-2: #0f161d; --ink: #e4eaf0; --muted: #8d9bab; --line: #26323d; --grid: #1b252f;
+    --accent: #7aa2ff; --accent-soft: #1e2b47;
+    --up: #34c37f; --down: #ff5d6e; --ref: #e0a94a; --ceil: #d29bff; --floor: #4fd0e6;
+    --up-flash: #1d5a3c; --down-flash: #6a2430;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1016; --surface: #121a22; --surface-2: #0f161d; --ink: #e4eaf0; --muted: #8d9bab; --line: #26323d; --grid: #1b252f;
+  --accent: #7aa2ff; --accent-soft: #1e2b47;
+  --up: #34c37f; --down: #ff5d6e; --ref: #e0a94a; --ceil: #d29bff; --floor: #4fd0e6;
+  --up-flash: #1d5a3c; --down-flash: #6a2430;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--display); font-size: 13px; line-height: 1.4; min-height: 100vh; display: flex; flex-direction: column; }
+.wrap { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+.mono, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+a { color: inherit; }
+button, input, select { font: inherit; color: inherit; }
+
+/* Thanh trên */
+header.top { background: var(--surface); border-bottom: 1px solid var(--line); }
+.topbar { display: flex; align-items: center; gap: 16px; padding-block: 8px; flex-wrap: wrap; }
+.brand { font-weight: 800; font-size: 17px; letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; text-decoration: none; }
+.links { display: flex; gap: 2px; }
+.links a { font-weight: 600; color: var(--muted); padding: 6px 11px; border-radius: 6px; text-decoration: none; }
+.links a:hover { color: var(--ink); background: var(--bg); }
+.links a[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
+.top-right { margin-left: auto; display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.live { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.live[data-state="open"] { color: var(--up); }
+.live[data-state="open"]::before { background: var(--up); animation: pulse 1.6s infinite; }
+.live[data-state="error"] { color: var(--down); }
+.live[data-state="error"]::before { background: var(--down); }
+@keyframes pulse { 50% { opacity: .3; } }
+.icon-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 12px; }
+.icon-btn:hover { background: var(--bg); }
+
+/* Dải chỉ số */
+.indices { display: flex; gap: 8px; overflow-x: auto; padding-block: 8px; scrollbar-width: thin; }
+.idx { flex: none; min-width: 168px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+.idx .nm { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+.idx .v { font: 600 16px var(--mono); }
+.idx .c { font: 500 12px var(--mono); }
+.idx .s { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.idx.breadth { min-width: 210px; }
+.bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin: 5px 0 4px; background: var(--grid); }
+.bar i { display: block; height: 100%; }
+
+/* Thanh công cụ */
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-bottom: 8px; }
+.groups { display: flex; flex-wrap: wrap; gap: 4px; }
+.groups button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-weight: 600; cursor: pointer; color: var(--muted); }
+.groups button:hover { color: var(--ink); }
+.groups button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.toolbar select, #search { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 5px 8px; }
+#search { width: 170px; text-transform: uppercase; }
+#search::placeholder { text-transform: none; }
+.toolbar .sp { flex: 1; }
+.toolbar label.chk { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); cursor: pointer; user-select: none; }
+
+/* Bảng */
+main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.board-wrap { flex: 1; overflow: auto; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface); max-height: calc(100vh - 190px); min-height: 320px; }
+table.board { border-collapse: separate; border-spacing: 0; width: 100%; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12px; }
+.board th, .board td { padding: 4px 5px; border-right: 1px solid var(--grid); border-bottom: 1px solid var(--grid); white-space: nowrap; text-align: right; }
+.board thead th { position: sticky; background: var(--surface-2); color: var(--muted); font: 600 11px var(--display); text-align: center; z-index: 2; }
+.board thead tr:first-child th { top: 0; height: 24px; }
+.board thead tr:nth-child(2) th { top: 24px; }
+.board thead th.sortable { cursor: pointer; }
+.board thead th.sortable:hover { color: var(--ink); }
+.board thead th[data-dir="asc"]::after { content: " ▲"; font-size: 9px; }
+.board thead th[data-dir="desc"]::after { content: " ▼"; font-size: 9px; }
+.board .g-buy { background: color-mix(in srgb, var(--up) 6%, var(--surface-2)); }
+.board .g-sell { background: color-mix(in srgb, var(--down) 6%, var(--surface-2)); }
+.board .g-match { background: color-mix(in srgb, var(--accent) 8%, var(--surface-2)); }
+.board .g-sys { background: color-mix(in srgb, var(--ref) 8%, var(--surface-2)); }
+.board td.sep, .board th.sep { border-left: 1px solid var(--line); }
+.board td.mtc { background: color-mix(in srgb, var(--accent) 4%, transparent); font-weight: 600; }
+.board td.mtc.big { font-size: 13px; }
+/* Cột cố định bên trái */
+.board .st { position: sticky; left: 0; z-index: 1; background: var(--surface); width: 26px; min-width: 26px; text-align: center; padding: 0; }
+.board .sy { position: sticky; left: 26px; z-index: 1; background: var(--surface); text-align: left; font-weight: 700; min-width: 58px; box-shadow: 1px 0 0 var(--line); }
+.board thead .st, .board thead .sy { z-index: 3; background: var(--surface-2); }
+.board tbody tr:hover td { background-color: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.board tbody tr.sel td { background-color: var(--accent-soft); }
+.board tbody tr.hl td { animation: hl 1.8s ease-out; }
+@keyframes hl { from { background-color: color-mix(in srgb, var(--ref) 40%, var(--surface)); } }
+.star { border: 0; background: none; cursor: pointer; color: var(--line); font-size: 14px; padding: 2px 4px; line-height: 1; }
+.star[aria-pressed="true"] { color: var(--ref); }
+.star:hover { color: var(--ref); }
+.sym-link { text-decoration: none; cursor: pointer; }
+.sym-link:hover { text-decoration: underline; }
+.ceil { color: var(--ceil); } .floor { color: var(--floor); } .ref { color: var(--ref); } .up { color: var(--up); } .down { color: var(--down); }
+.mute { color: var(--muted); }
+td.f-up { animation: fu 1s ease-out; } td.f-down { animation: fd 1s ease-out; }
+@keyframes fu { from { background-color: var(--up-flash); } }
+@keyframes fd { from { background-color: var(--down-flash); } }
+.pill { display: inline-block; font: 700 10.5px var(--display); padding: 1px 7px; border-radius: 999px; letter-spacing: .02em; }
+.pill.buy { background: var(--up); color: var(--surface); }
+.pill.hold { background: color-mix(in srgb, var(--up) 18%, var(--surface)); color: var(--up); }
+.pill.sell { background: color-mix(in srgb, var(--down) 18%, var(--surface)); color: var(--down); }
+.empty { padding: 40px 16px; text-align: center; color: var(--muted); font-family: var(--display); }
+.board.nosys .sys { display: none; }
+.board.nonn .nn { display: none; }
+
+footer { padding-block: 10px 16px; color: var(--muted); font-size: 11.5px; }
+footer p { margin: 0 0 4px; max-width: 110ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 6px; }
+.legend span::before { content: "■ "; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--surface); padding: 8px 14px; border-radius: 8px; font-weight: 600; z-index: 20; box-shadow: 0 6px 20px rgb(0 0 0 / .25); }
+
+@media (max-width: 720px) {
+  .top-right .asof { display: none; }
+  #search { width: 130px; }
+  .board-wrap { max-height: calc(100vh - 150px); }
+  .idx { min-width: 140px; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap topbar">
+    <a class="brand" href="./">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="1" y="12" width="4" height="9" rx="1" fill="var(--down)"/><rect x="7" y="7" width="4" height="14" rx="1" fill="var(--ref)"/><rect x="13" y="3" width="4" height="18" rx="1" fill="var(--up)"/><path d="M2 10 L9 5 L15 2 L21 1" stroke="var(--accent)" stroke-width="1.6" fill="none"/></svg>
+      Nhịp Cổ Phiếu
+    </a>
+    <nav class="links">
+      <a href="./">Tín hiệu</a>
+      <a href="banggia.html" aria-current="page">Bảng giá</a>
+    </nav>
+    <div class="top-right">
+      <span id="live" class="live" data-state="off">Đang kết nối</span>
+      <span class="asof" id="asof"></span>
+      <button class="icon-btn" id="themeBtn" title="Đổi giao diện sáng/tối">Sáng / Tối</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap indices" id="indices"></div>
+  <div class="wrap toolbar">
+    <div class="groups" id="groups" role="group" aria-label="Nhóm mã"></div>
+    <select id="sector" aria-label="Lọc theo ngành"><option value="">Theo ngành…</option></select>
+    <input id="search" placeholder="Tìm mã, Enter để theo dõi" maxlength="10" autocomplete="off" list="symList" aria-label="Tìm mã">
+    <datalist id="symList"></datalist>
+    <span class="sp"></span>
+    <label class="chk"><input type="checkbox" id="optNN" checked> Nước ngoài</label>
+    <label class="chk"><input type="checkbox" id="optSys" checked> Tín hiệu hệ thống</label>
+  </div>
+  <div class="board-wrap" id="boardWrap">
+    <table class="board" id="board"></table>
+    <div class="empty" id="empty" hidden></div>
+  </div>
+</main>
+
+<footer class="wrap">
+  <div class="legend"><span class="ceil">Giá trần</span><span class="up">Tăng</span><span class="ref">Tham chiếu</span><span class="down">Giảm</span><span class="floor">Giá sàn</span></div>
+  <p>Giá: nghìn đồng. Khối lượng: cổ phiếu, rút gọn K = nghìn, M = triệu. Giá và sổ lệnh 3 bước giá lấy trực tiếp từ bảng giá công khai của CafeF, làm mới mỗi 5 giây trong giờ giao dịch (9:00–11:30, 13:00–15:00), có thể trễ vài giây so với sàn.</p>
+  <p>Cột tín hiệu hệ thống (MUA / NẮM GIỮ / BÁN, điểm sức mạnh 0–10, dừng lỗ, T1, T2) lấy từ bộ tín hiệu của Nhịp Cổ Phiếu, tính lại mỗi 10 phút trong phiên. Bấm vào mã để xem biểu đồ và chi tiết. Đây là công cụ tham khảo, không phải khuyến nghị đầu tư.</p>
+</footer>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+
+  /* ---------- Giao diện sáng/tối ---------- */
+  const applyTheme = t => { if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; };
+  applyTheme(store.get("boardTheme", null));
+  $("#themeBtn").addEventListener("click", () => {
+    const dark = getComputedStyle(document.documentElement).colorScheme === "dark";
+    const t = dark ? "light" : "dark"; applyTheme(t); store.set("boardTheme", t);
+  });
+
+  /* ---------- Định dạng ---------- */
+  const nf2 = new Intl.NumberFormat("vi-VN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const nf1 = new Intl.NumberFormat("vi-VN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const nf0 = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 });
+  const px = v => v ? nf2.format(v) : "";
+  const vol = v => {
+    if (!v) return "";
+    if (v >= 1e6) return nf2.format(v / 1e6) + "M";
+    if (v >= 1e5) return nf0.format(v / 1e3) + "K";
+    return nf0.format(v);
+  };
+  const sgn = v => (v > 0 ? "+" : "") + nf2.format(v);
+  // Màu của một mức giá so với tham chiếu/trần/sàn của chính mã đó
+  const pc = (p, q) => !p || !q.ref ? "" : p >= q.ceil ? "ceil" : p <= q.floor ? "floor" : p > q.ref ? "up" : p < q.ref ? "down" : "ref";
+
+  /* ---------- Giờ giao dịch (giờ Việt Nam) ---------- */
+  const vnNow = () => new Date(Date.now() + 7 * 3600e3);
+  function phase() {
+    const d = vnNow(), wd = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes();
+    if (wd === 0 || wd === 6) return "closed";
+    if ((m >= 540 && m < 690) || (m >= 780 && m < 900)) return "open";
+    if (m >= 690 && m < 780) return "break";
+    return "closed";
+  }
+
+  /* ---------- Nguồn dữ liệu ---------- */
+  // Bảng giá CafeF cho phép trình duyệt đọc trực tiếp; center 1 = HOSE, 2 = HNX, 9 = UPCoM.
+  const CENTER = { HOSE: 1, HNX: 2, UPCOM: 9 };
+  const QURL = c => `https://banggia.cafef.vn/stockhandler.ashx?center=${c}`;
+  const IURL = "https://banggia.cafef.vn/stockhandler.ashx?index=true";
+  // Bên mua: e/f là giá/KL tốt nhất (mua 1), g/h mua 2, i/j mua 3. Bên bán: s/t bán 1, q/r bán 2, o/p bán 3.
+  const parseQ = (x, ex) => ({
+    sym: x.a, ex, ref: +x.b || 0, ceil: +x.c || 0, floor: +x.d || 0,
+    b1: +x.e || 0, b1v: +x.f || 0, b2: +x.g || 0, b2v: +x.h || 0, b3: +x.i || 0, b3v: +x.j || 0,
+    chg: +x.k || 0, price: +x.l || 0, lastVol: +x.m || 0, vol: +x.n || +x.totalvolume || 0,
+    a1: +x.s || 0, a1v: +x.t || 0, a2: +x.q || 0, a2v: +x.r || 0, a3: +x.o || 0, a3v: +x.p || 0,
+    high: +x.v || 0, low: +x.w || 0, fBuy: +x.x || 0, fSell: +x.y || 0, time: x.Time || "",
+  });
+
+  const Q = {};          // giá theo mã
+  let S = {}, D = null;  // tín hiệu hệ thống theo mã, và toàn bộ signals.json
+  let groupsData = {};
+  let watch = new Set(store.get("watch", []));
+  const saveWatch = () => store.set("watch", [...watch]);
+
+  /* ---------- Cột ---------- */
+  // g: nhóm tiêu đề trên; k: khoá sắp xếp; v: giá trị; t: chữ hiển thị; c: lớp màu
+  const sysCell = s => !s ? "" : s.signal === "MUA" ? '<span class="pill buy">MUA</span>' : s.signal === "NẮM GIỮ" ? '<span class="pill hold">NẮM GIỮ</span>' : s.signal === "BÁN" ? '<span class="pill sell">BÁN</span>' : "";
+  const open = s => s && s.sig && (s.signal === "MUA" || s.signal === "NẮM GIỮ");
+  const COLS = [
+    { id: "ref", g: "", h: "TC", k: "ref", v: q => q.ref, t: q => px(q.ref), c: () => "ref" },
+    { id: "ceil", g: "", h: "Trần", v: q => q.ceil, t: q => px(q.ceil), c: () => "ceil" },
+    { id: "floor", g: "", h: "Sàn", v: q => q.floor, t: q => px(q.floor), c: () => "floor" },
+    { id: "b3", g: "buy", h: "Giá 3", v: q => q.b3, t: q => px(q.b3), c: q => pc(q.b3, q), sep: 1 },
+    { id: "b3v", g: "buy", h: "KL 3", v: q => q.b3v, t: q => vol(q.b3v), c: q => pc(q.b3, q) },
+    { id: "b2", g: "buy", h: "Giá 2", v: q => q.b2, t: q => px(q.b2), c: q => pc(q.b2, q) },
+    { id: "b2v", g: "buy", h: "KL 2", v: q => q.b2v, t: q => vol(q.b2v), c: q => pc(q.b2, q) },
+    { id: "b1", g: "buy", h: "Giá 1", v: q => q.b1, t: q => px(q.b1), c: q => pc(q.b1, q) },
+    { id: "b1v", g: "buy", h: "KL 1", v: q => q.b1v, t: q => vol(q.b1v), c: q => pc(q.b1, q) },
+    { id: "price", g: "match", h: "Giá", k: "price", v: q => q.price, t: q => px(q.price), c: q => pc(q.price, q), m: 1, sep: 1 },
+    { id: "lastVol", g: "match", h: "KL", v: q => q.lastVol, t: q => vol(q.lastVol), c: q => pc(q.price, q), m: 1 },
+    { id: "chg", g: "match", h: "+/−", k: "chg", v: q => q.chg, t: q => q.price ? sgn(q.chg) : "", c: q => pc(q.price, q), m: 1 },
+    { id: "pct", g: "match", h: "%", k: "pct", v: q => q.ref && q.price ? q.chg / q.ref * 100 : 0, t: q => q.ref && q.price ? sgn(q.chg / q.ref * 100) + "%" : "", c: q => pc(q.price, q), m: 1 },
+    { id: "a1", g: "sell", h: "Giá 1", v: q => q.a1, t: q => px(q.a1), c: q => pc(q.a1, q), sep: 1 },
+    { id: "a1v", g: "sell", h: "KL 1", v: q => q.a1v, t: q => vol(q.a1v), c: q => pc(q.a1, q) },
+    { id: "a2", g: "sell", h: "Giá 2", v: q => q.a2, t: q => px(q.a2), c: q => pc(q.a2, q) },
+    { id: "a2v", g: "sell", h: "KL 2", v: q => q.a2v, t: q => vol(q.a2v), c: q => pc(q.a2, q) },
+    { id: "a3", g: "sell", h: "Giá 3", v: q => q.a3, t: q => px(q.a3), c: q => pc(q.a3, q) },
+    { id: "a3v", g: "sell", h: "KL 3", v: q => q.a3v, t: q => vol(q.a3v), c: q => pc(q.a3, q) },
+    { id: "vol", g: "", h: "Tổng KL", k: "vol", v: q => q.vol, t: q => vol(q.vol), c: () => "", sep: 1 },
+    { id: "high", g: "", h: "Cao", k: "high", v: q => q.high, t: q => px(q.high), c: q => pc(q.high, q) },
+    { id: "low", g: "", h: "Thấp", v: q => q.low, t: q => px(q.low), c: q => pc(q.low, q) },
+    { id: "fBuy", g: "nn", h: "Mua", k: "fBuy", v: q => q.fBuy, t: q => vol(q.fBuy), c: () => "", sep: 1, cls: "nn" },
+    { id: "fSell", g: "nn", h: "Bán", k: "fSell", v: q => q.fSell, t: q => vol(q.fSell), c: () => "", cls: "nn" },
+    { id: "sig", g: "sys", h: "Tín hiệu", k: "sig", v: (q, s) => s ? ({ "MUA": 3, "NẮM GIỮ": 2, "BÁN": 1 }[s.signal] || 0) : 0, html: (q, s) => sysCell(s), c: () => "", sep: 1, cls: "sys" },
+    { id: "score", g: "sys", h: "Điểm", k: "score", v: (q, s) => s ? s.score : -1, t: (q, s) => s ? nf1.format(s.score) : "", c: (q, s) => !s ? "" : s.score >= 7 ? "up" : s.score >= 4.5 ? "ref" : "down", cls: "sys" },
+    { id: "stop", g: "sys", h: "Dừng lỗ", v: (q, s) => open(s) ? s.sig.stop : 0, t: (q, s) => open(s) ? px(s.sig.stop) : "", c: () => "down", cls: "sys" },
+    { id: "t1", g: "sys", h: "T1", v: (q, s) => open(s) ? s.sig.t1 : 0, t: (q, s) => open(s) ? px(s.sig.t1) : "", c: (q, s) => open(s) && s.sig.t1_hit ? "up" : "mute", cls: "sys" },
+    { id: "t2", g: "sys", h: "T2", v: (q, s) => open(s) ? s.sig.t2 : 0, t: (q, s) => open(s) ? px(s.sig.t2) : "", c: () => "mute", cls: "sys" },
+    { id: "pnl", g: "sys", h: "Lãi/lỗ", k: "pnl", v: (q, s) => open(s) && q.price ? (q.price / s.sig.entry - 1) * 100 : -1e9, t: (q, s) => open(s) && q.price ? sgn((q.price / s.sig.entry - 1) * 100) + "%" : "", c: (q, s) => !open(s) || !q.price ? "" : q.price >= s.sig.entry ? "up" : "down", cls: "sys" },
+  ];
+  const GROUPS = { buy: ["Bên mua", "g-buy"], match: ["Khớp lệnh", "g-match"], sell: ["Bên bán", "g-sell"], nn: ["Nước ngoài", "g-nn"], sys: ["Hệ thống Nhịp Cổ Phiếu", "g-sys"] };
+  const FLASH = new Set(["price", "lastVol", "chg", "pct", "b1", "b1v", "b2", "b2v", "b3", "b3v", "a1", "a1v", "a2", "a2v", "a3", "a3v", "vol", "high", "low", "fBuy", "fSell"]);
+
+  function renderHead() {
+    let top = `<th class="st" rowspan="2"></th><th class="sy sortable" rowspan="2" data-k="sym">Mã</th>`;
+    let bot = "";
+    for (let i = 0; i < COLS.length; i++) {
+      const c = COLS[i];
+      const sortAttr = c.k ? ` sortable" data-k="${c.k}` : "";
+      if (!c.g) { top += `<th rowspan="2" class="${c.sep ? "sep" : ""}${sortAttr}">${c.h}</th>`; continue; }
+      if (i === 0 || COLS[i - 1].g !== c.g) {
+        const n = COLS.filter(x => x.g === c.g).length, [name, cls] = GROUPS[c.g];
+        top += `<th colspan="${n}" class="sep ${cls} ${c.cls || ""}">${name}</th>`;
+      }
+      bot += `<th class="${GROUPS[c.g][1]} ${c.sep ? "sep" : ""} ${c.cls || ""}${sortAttr}">${c.h}</th>`;
+    }
+    $("#board").innerHTML = `<thead><tr>${top}</tr><tr>${bot}</tr></thead><tbody></tbody>`;
+    $$("#board thead th[data-k]").forEach(th => th.addEventListener("click", () => {
+      const k = th.dataset.k;
+      sort = sort.k === k ? { k, dir: sort.dir === "asc" ? "desc" : "asc" } : { k, dir: k === "sym" ? "asc" : "desc" };
+      store.set("boardSort", sort); renderBody();
+    }));
+  }
+
+  /* ---------- Nhóm mã ---------- */
+  const VIEWS = [
+    ["watch", "★ Theo dõi"], ["VN30", "VN30"], ["HNX30", "HNX30"], ["HOSE", "HOSE"], ["HNX", "HNX"], ["UPCOM", "UPCoM"], ["signal", "Có tín hiệu"],
+  ];
+  let view = store.get("boardView", watch.size ? "watch" : "VN30");
+  let sector = "";
+  let sort = store.get("boardSort", { k: "sym", dir: "asc" });
+  let query = "";
+
+  // Rổ dự phòng khi signals.json chưa có thành phần rổ (cập nhật 11/2026)
+  const FALLBACK_GROUPS = { VN30: ["ACB", "BID", "BSR", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG", "LPB", "MBB", "MCH", "MSN", "MWG", "SAB",
+    "SHB", "SSB", "SSI", "STB", "TCB", "TCX", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VPL", "VRE"], HNX30: [] };
+  const group = k => (groupsData[k] && groupsData[k].length ? groupsData[k] : FALLBACK_GROUPS[k]) || [];
+  function renderGroups() {
+    if (view === "HNX30" && !group("HNX30").length) view = "VN30";
+    $("#groups").innerHTML = VIEWS.filter(([k]) => k !== "HNX30" || group("HNX30").length)
+      .map(([k, t]) => `<button data-view="${k}" aria-pressed="${!sector && view === k}">${t}${k === "watch" ? ` (${watch.size})` : ""}</button>`).join("");
+  }
+  $("#groups").addEventListener("click", e => {
+    const b = e.target.closest("button[data-view]"); if (!b) return;
+    view = b.dataset.view; sector = ""; $("#sector").value = ""; store.set("boardView", view);
+    renderGroups(); renderBody(); tick(true);
+  });
+  $("#sector").addEventListener("change", e => { sector = e.target.value; renderGroups(); renderBody(); tick(true); });
+
+  // Danh sách mã của nhóm đang xem (chưa áp dụng ô tìm kiếm)
+  function viewSyms() {
+    if (sector) return Object.keys(S).filter(s => S[s].sector === sector);
+    if (view === "watch") return [...watch];
+    if (view === "signal") return Object.keys(S).filter(s => ["MUA", "NẮM GIỮ"].includes(S[s].signal));
+    if (view in FALLBACK_GROUPS) return group(view);
+    if (CENTER[view]) {
+      const fromQ = Object.values(Q).filter(q => q.ex === view).map(q => q.sym);
+      return fromQ.length ? fromQ : Object.keys(S).filter(s => S[s].ex === view);
+    }
+    return [];
+  }
+  // Sàn cần tải cho nhóm đang xem
+  function neededCenters() {
+    if (CENTER[view] && !sector) return [CENTER[view]];
+    if (view === "VN30" && !sector) return [1];
+    if (view === "HNX30" && !sector) return [2];
+    const ex = new Set(viewSyms().map(s => Q[s]?.ex || S[s]?.ex).filter(Boolean));
+    const unknown = viewSyms().some(s => !Q[s] && !S[s]);
+    return unknown || !ex.size ? [1, 2, 9] : [...ex].map(e => CENTER[e]).filter(Boolean);
+  }
+
+  /* ---------- Thân bảng ---------- */
+  let rows = {};   // mã -> { tr, tds: [...], last: [...] }
+  function sortVal(sym) {
+    const q = Q[sym], s = S[sym];
+    if (sort.k === "sym") return sym;
+    if (!q) return -1e12;
+    const col = COLS.find(c => c.k === sort.k);
+    return col ? col.v(q, s) : 0;
+  }
+  function renderBody() {
+    let syms = [...new Set(viewSyms())];
+    if (query) syms = syms.filter(s => s.startsWith(query));
+    const dir = sort.dir === "asc" ? 1 : -1;
+    syms.sort((a, b) => { const x = sortVal(a), y = sortVal(b); return (x < y ? -1 : x > y ? 1 : a < b ? -1 : 1) * dir; });
+    $$("#board thead th[data-k]").forEach(th => th.dataset.dir = th.dataset.k === sort.k ? sort.dir : "");
+    const tb = $("#board tbody");
+    rows = {};
+    const frag = document.createDocumentFragment();
+    for (const sym of syms) {
+      const tr = document.createElement("tr");
+      tr.dataset.sym = sym;
+      tr.innerHTML = `<td class="st"><button class="star" aria-pressed="${watch.has(sym)}" title="Theo dõi">★</button></td><td class="sy"><a class="sym-link" href="./?ma=${sym}">${sym}</a></td>`
+        + COLS.map(c => `<td class="${c.sep ? "sep " : ""}${c.m ? "mtc " : ""}${c.cls || ""}"></td>`).join("");
+      const tds = [...tr.children].slice(2);
+      rows[sym] = { tr, tds, last: [], symTd: tr.children[1] };
+      fillRow(sym, false);
+      frag.appendChild(tr);
+    }
+    tb.replaceChildren(frag);
+    const empty = $("#empty");
+    empty.hidden = syms.length > 0;
+    if (!syms.length) empty.textContent = query ? `Không có mã nào bắt đầu bằng “${query}” trong nhóm này.`
+      : view === "watch" && !sector ? "Chưa có mã theo dõi. Gõ mã vào ô tìm kiếm rồi nhấn Enter, hoặc bấm ★ ở đầu mỗi dòng." : "Không có mã nào trong nhóm này.";
+    renderBreadth(syms);
+  }
+  function fillRow(sym, flash) {
+    const r = rows[sym], q = Q[sym], s = S[sym];
+    if (!r) return;
+    r.symTd.className = "sy " + (q ? pc(q.price || q.ref, q) : "");
+    if (!q) return;
+    COLS.forEach((c, i) => {
+      const td = r.tds[i];
+      const out = c.html ? c.html(q, s) : c.t(q, s);
+      const v = c.v(q, s);
+      const cls = `${c.sep ? "sep " : ""}${c.m ? "mtc " : ""}${c.id === "price" ? "big " : ""}${c.cls || ""} ${c.c(q, s)}`;
+      if (r.last[i] === undefined || r.last[i].out !== out) {
+        if (c.html) td.innerHTML = out; else td.textContent = out;
+      }
+      let fc = "";
+      if (flash && FLASH.has(c.id) && r.last[i] && r.last[i].v !== v && v) {
+        fc = v > r.last[i].v ? " f-up" : " f-down";
+      }
+      if (fc) { td.className = cls; void td.offsetWidth; td.className = cls + fc; }
+      else if (!r.last[i] || r.last[i].cls !== cls) td.className = cls;
+      r.last[i] = { out, v, cls };
+    });
+  }
+  $("#board").addEventListener("click", e => {
+    const star = e.target.closest(".star");
+    const tr = e.target.closest("tr[data-sym]");
+    if (star && tr) {
+      const s = tr.dataset.sym;
+      watch.has(s) ? watch.delete(s) : watch.add(s); saveWatch();
+      star.setAttribute("aria-pressed", watch.has(s)); renderGroups();
+      if (view === "watch" && !sector && !watch.has(s)) renderBody();
+      return;
+    }
+    if (tr && !e.target.closest("a")) { $$("#board tr.sel").forEach(x => x.classList.remove("sel")); tr.classList.add("sel"); }
+  });
+
+  /* ---------- Tìm mã ---------- */
+  const toast = msg => { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 2500); };
+  $("#search").addEventListener("input", e => { query = e.target.value.trim().toUpperCase(); renderBody(); });
+  $("#search").addEventListener("keydown", e => {
+    if (e.key === "Escape") { e.target.value = ""; query = ""; renderBody(); return; }
+    if (e.key !== "Enter") return;
+    const s = e.target.value.trim().toUpperCase();
+    if (!s) return;
+    if (!Q[s] && !S[s]) { toast(`Không tìm thấy mã ${s}`); return; }
+    if (!watch.has(s)) { watch.add(s); saveWatch(); toast(`Đã thêm ${s} vào danh mục theo dõi`); }
+    e.target.value = ""; query = "";
+    if (!viewSyms().includes(s)) { view = "watch"; sector = ""; $("#sector").value = ""; store.set("boardView", view); }
+    renderGroups(); renderBody(); tick(true);
+    const r = rows[s];
+    if (r) { r.tr.scrollIntoView({ block: "center" }); r.tr.classList.remove("hl"); void r.tr.offsetWidth; r.tr.classList.add("hl"); }
+  });
+
+  /* ---------- Tuỳ chọn cột ---------- */
+  const opts = store.get("boardOpts", { nn: true, sys: true });
+  $("#optNN").checked = opts.nn; $("#optSys").checked = opts.sys;
+  const applyOpts = () => { $("#board").classList.toggle("nonn", !opts.nn); $("#board").classList.toggle("nosys", !opts.sys); };
+  $("#optNN").addEventListener("change", e => { opts.nn = e.target.checked; store.set("boardOpts", opts); applyOpts(); });
+  $("#optSys").addEventListener("change", e => { opts.sys = e.target.checked; store.set("boardOpts", opts); applyOpts(); });
+
+  /* ---------- Chỉ số và độ rộng thị trường ---------- */
+  const IDX = [["VNINDEX", "VN-Index"], ["VN30", "VN30"], ["HNXINDEX", "HNX-Index"], ["HNX30", "HNX30"], ["HNXUPCOMINDEX", "UPCoM"]];
+  let indexData = [];
+  const toNum = s => +String(s ?? "").replace(/,/g, "") || 0;
+  function renderIndices() {
+    const by = Object.fromEntries(indexData.map(x => [x.name, x]));
+    let html = IDX.map(([k, name]) => {
+      const x = by[k];
+      if (!x) return "";
+      const ch = toNum(x.change), p = toNum(x.percent), cls = ch > 0 ? "up" : ch < 0 ? "down" : "ref";
+      return `<div class="idx"><div class="nm">${name}</div><div class="v ${cls}">${nf2.format(toNum(x.index))}</div>
+        <div class="c ${cls}">${sgn(ch)} (${sgn(p)}%)</div><div class="s">${vol(toNum(x.volume))} cp · ${nf0.format(toNum(x.value))} tỷ</div></div>`;
+    }).join("");
+    if (!html && D) {
+      const m = D.market, cls = m.chg > 0 ? "up" : m.chg < 0 ? "down" : "ref";
+      html = `<div class="idx"><div class="nm">VN-Index</div><div class="v ${cls}">${nf2.format(m.index)}</div><div class="c ${cls}">${sgn(m.chg)}%</div><div class="s">phiên ${D.as_of}</div></div>`;
+    }
+    $("#indices").innerHTML = html + `<div class="idx breadth" id="breadth"></div>`;
+    renderBreadth();
+  }
+  let lastSyms = [];
+  function renderBreadth(syms) {
+    if (syms) lastSyms = syms;
+    const el = $("#breadth"); if (!el) return;
+    let ce = 0, up = 0, eq = 0, dn = 0, fl = 0;
+    for (const s of lastSyms) {
+      const q = Q[s]; if (!q || !q.price) continue;
+      const c = pc(q.price, q);
+      if (c === "ceil") ce++; else if (c === "up") up++; else if (c === "ref") eq++; else if (c === "down") dn++; else if (c === "floor") fl++;
+    }
+    const n = ce + up + eq + dn + fl || 1, w = x => (x / n * 100).toFixed(1) + "%";
+    el.innerHTML = `<div class="nm">ĐỘ RỘNG NHÓM ĐANG XEM</div>
+      <div class="bar"><i style="width:${w(ce)};background:var(--ceil)"></i><i style="width:${w(up)};background:var(--up)"></i><i style="width:${w(eq)};background:var(--ref)"></i><i style="width:${w(dn)};background:var(--down)"></i><i style="width:${w(fl)};background:var(--floor)"></i></div>
+      <div class="s"><span class="up">▲ ${up + ce}</span>${ce ? ` <span class="ceil">(${ce} trần)</span>` : ""} · <span class="ref">■ ${eq}</span> · <span class="down">▼ ${dn + fl}</span>${fl ? ` <span class="floor">(${fl} sàn)</span>` : ""}</div>`;
+  }
+
+  /* ---------- Vòng cập nhật ---------- */
+  const setLive = (state, text) => { const el = $("#live"); el.dataset.state = state; el.textContent = text; };
+  const getJSON = u => fetch(u, { cache: "no-store" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  const centerEx = { 1: "HOSE", 2: "HNX", 9: "UPCOM" };
+  let timer = null, busy = false, loadedAll = false, symListFilled = false;
+  async function tick(immediate) {
+    clearTimeout(timer);
+    if (busy) { if (immediate) timer = setTimeout(() => tick(true), 300); return; }
+    busy = true;
+    const ph = phase();
+    // Lần đầu tải cả 3 sàn để ô tìm mã và nhóm ngành có đủ dữ liệu
+    const centers = loadedAll ? neededCenters() : [1, 2, 9];
+    const [qs, idx] = await Promise.all([
+      Promise.allSettled(centers.map(c => getJSON(QURL(c)).then(j => [c, j]))),
+      getJSON(IURL).catch(() => null),
+    ]);
+    let ok = 0, latest = "";
+    for (const r of qs) if (r.status === "fulfilled" && Array.isArray(r.value[1])) {
+      const [c, list] = r.value;
+      for (const x of list) if (x && x.a) { Q[x.a] = parseQ(x, centerEx[c]); ok++; if (x.Time > latest) latest = x.Time; }
+    }
+    if (Array.isArray(idx) && idx.length) { indexData = idx; renderIndices(); }
+    if (ok) {
+      const first = !loadedAll;
+      loadedAll = true;
+      if (!symListFilled) { $("#symList").innerHTML = Object.keys(Q).sort().map(s => `<option value="${s}">`).join(""); symListFilled = true; }
+      if (first || Object.keys(rows).some(s => !rows[s].last.length) || (CENTER[view] && !Object.keys(rows).length)) renderBody();
+      else { for (const s in rows) fillRow(s, true); renderBreadth(); }
+      const t = latest ? latest.split(" ")[0] : "";
+      setLive(ph === "open" ? "open" : "off", ph === "open" ? `Trực tiếp${t ? " · " + t : ""}` : ph === "break" ? "Nghỉ trưa" : "Ngoài giờ giao dịch");
+      $("#asof").textContent = latest ? `Giá lúc ${latest}` : "";
+    } else {
+      setLive("error", "Không lấy được giá");
+    }
+    busy = false;
+    timer = setTimeout(tick, ph === "open" ? 5000 : ph === "break" ? 60000 : 180000);
+  }
+  // Tạm dừng khi tab bị ẩn, cập nhật ngay khi quay lại
+  document.addEventListener("visibilitychange", () => { if (document.hidden) clearTimeout(timer); else tick(true); });
+
+  /* ---------- Tín hiệu hệ thống ---------- */
+  function applySignals(d) {
+    D = d;
+    S = Object.fromEntries(d.stocks.map(s => [s.sym, s]));
+    groupsData = d.groups || {};
+    const cur = $("#sector").value;
+    $("#sector").innerHTML = `<option value="">Theo ngành…</option>` + d.sectors.map(s => `<option>${s.name}</option>`).join("");
+    $("#sector").value = cur;
+    if (!indexData.length) renderIndices();
+  }
+  async function loadSignals() {
+    try {
+      const d = await getJSON("data/signals.json");
+      const changed = !D || d.generated !== D.generated;
+      applySignals(d);
+      if (changed) { renderGroups(); renderBody(); }
+    } catch {}
+    setTimeout(loadSignals, 120000);
+  }
+
+  /* ---------- Khởi động ---------- */
+  renderHead(); applyOpts(); renderGroups(); renderIndices(); renderBody();
+  loadSignals().then(() => tick(true));
+})();
+</script>
+</body>
+</html>

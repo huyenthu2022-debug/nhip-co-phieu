@@ -32,6 +32,7 @@ jobs:
           mkdir -p _site/data
           { echo '<!doctype html><html lang="vi"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>'; cat web/index.html; echo '</body></html>'; } > _site/index.html
           cp -r web/data/. _site/data/
+          cp web/banggia.html _site/
       - uses: actions/upload-pages-artifact@v3
         with: { path: _site }
   deploy:

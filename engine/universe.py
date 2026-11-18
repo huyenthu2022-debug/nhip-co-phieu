@@ -20,6 +20,13 @@ FALLBACK = {
 FALLBACK_EXCHANGE = {s: "HOSE" for syms in FALLBACK.values() for s in syms}
 FALLBACK_EXCHANGE.update({"SHS": "HNX", "PVS": "HNX", "BSR": "UPCOM"})
 
+# Rổ chỉ số cho bảng giá, dùng khi không lấy được thành phần trực tuyến (cập nhật 11/2026)
+FALLBACK_GROUPS = {
+    "VN30": ["ACB", "BID", "BSR", "CTG", "FPT", "GAS", "GVR", "HDB", "HPG", "LPB", "MBB", "MCH", "MSN", "MWG", "SAB",
+             "SHB", "SSB", "SSI", "STB", "TCB", "TCX", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VPL", "VRE"],
+    "HNX30": [],
+}
+
 
 def fallback_listing():
     return [{"sym": s, "exchange": FALLBACK_EXCHANGE[s], "sector": sec, "industry": sec, "name": ""}

@@ -56,6 +56,8 @@ nav.tabs { display: flex; gap: 2px; flex-wrap: wrap; }
 nav.tabs button { font: 600 13px var(--body); color: var(--muted); background: none; border: 0; padding: 7px 12px; border-radius: 6px; cursor: pointer; }
 nav.tabs button:hover { color: var(--ink); background: var(--bg); }
 nav.tabs button[aria-selected="true"] { color: var(--accent); background: var(--accent-soft); }
+.board-link { font: 600 13px var(--body); color: var(--accent); text-decoration: none; padding: 7px 12px; border: 1px solid var(--accent-soft); border-radius: 6px; }
+.board-link:hover { background: var(--accent-soft); }
 .asof { margin-left: auto; color: var(--muted); font-size: 12px; text-align: right; display: grid; gap: 2px; justify-items: end; }
 .live { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--muted); }
 .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
@@ -198,6 +200,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
       <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="1" y="12" width="4" height="9" rx="1" fill="var(--down)"/><rect x="7" y="7" width="4" height="14" rx="1" fill="var(--ref)"/><rect x="13" y="3" width="4" height="18" rx="1" fill="var(--up)"/><path d="M2 10 L9 5 L15 2 L21 1" stroke="var(--accent)" stroke-width="1.6" fill="none"/></svg>
       Nhịp Cổ Phiếu
     </div>
+    <a class="board-link" href="banggia.html">Bảng giá ↗</a>
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="tongquan">Tổng quan</button>
       <button role="tab" data-tab="nganh">Ngành</button>
@@ -778,6 +781,9 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
     const h = location.hash.slice(1);
     show(TABS.includes(h) ? h : store.get("tab", "tongquan"));
     renderAlerts();
+    // Mở thẳng chi tiết một mã khi đến từ bảng giá (index.html?ma=FPT)
+    const qm = new URLSearchParams(location.search).get("ma");
+    if (qm && D.stocks.some(x => x.sym === qm)) openDetail(qm);
     if (!D.demo) { liveTick(); setTimeout(refreshData, DATA_MS); }
   }
   fetch("data/signals.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(boot).catch(err => {
