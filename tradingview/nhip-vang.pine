@@ -8,7 +8,7 @@
 //   M15 vào lệnh: nến (hiện tại hoặc trước) chọc thủng đáy 20 nến trước đó rồi nến hiện tại đóng cửa quay lại, nến tăng: MUA.
 //   SL sau râu nến quét + 0,1 ATR, tối thiểu 15 giá, bỏ lệnh nếu cần hơn 20 giá. Tới 1:1 dời SL về giá vào, chốt 1:3.
 // Tín hiệu tham khảo, không phải lời khuyên đầu tư.
-indicator("Nhịp Vàng · H4 xu hướng · H1 vùng · M15 quét thanh khoản", shorttitle = "Nhịp Vàng", overlay = true, max_labels_count = 500)
+indicator("Nhịp Vàng · H4 xu hướng · H1 vùng · M15 quét thanh khoản", shorttitle = "Nhịp Vàng", overlay = true, max_labels_count = 500, max_boxes_count = 500, max_lines_count = 500)
 
 tpR       = input.float(3.0, "Chốt lời (R)", minval = 1, step = 0.5)
 beR       = input.float(1.0, "Dời SL về giá vào khi đạt (R)", minval = 0.5, step = 0.5)
@@ -17,6 +17,9 @@ minRisk   = input.float(15, "SL tối thiểu (giá, quy về mức 3.850)")
 maxRisk   = input.float(20, "SL tối đa (giá, quy về mức 3.850)")
 bufAtr    = input.float(0.1, "Đệm SL sau râu nến (ATR)", step = 0.05)
 showTable = input.bool(true, "Hiện bảng trạng thái")
+showHist  = input.bool(true, "Giữ vùng SL/TP của các lệnh đã đóng")
+cUp       = input.color(color.new(#089981, 0), "Màu chốt lời")
+cDn       = input.color(color.new(#F23645, 0), "Màu dừng lỗ")
 
 // ---------- Khung lớn: lấy giá trị của nến ĐÃ ĐÓNG (không vẽ lại) ----------
 trend4() =>
@@ -64,6 +67,16 @@ var int   nLoss = 0
 var float totR  = 0.0
 f(x) => str.tostring(x, format.mintick)
 
+// Vùng SL (đỏ) và TP (xanh) giống công cụ Vị thế mua/bán của TradingView, kèm nhãn giá ở mép phải
+var box   bxSl = na
+var box   bxTp = na
+var line  lnEn = na
+var line  lnBe = na
+var label lbSl = na
+var label lbTp = na
+var label lbEn = na
+var label lbBe = na
+
 bool  closed  = false
 bool  oppExit = false
 float exitR   = na
@@ -95,6 +108,20 @@ if pos != 0
         nLoss += exitR < 0 ? 1 : 0
         totR  += exitR
         alert("XAUUSD: " + why + " · lệnh " + (pos == 1 ? "MUA" : "BÁN") + " từ " + f(entry) + " · " + str.tostring(exitR, "#.##") + "R", alert.freq_once_per_bar)
+        // Đóng lệnh: chốt vùng màu tới nến thoát, ghi kết quả, xoá nhãn mép phải
+        box.set_right(bxSl, bar_index)
+        box.set_right(bxTp, bar_index)
+        line.set_x2(lnEn, bar_index)
+        line.delete(lnBe)
+        label.delete(lbSl)
+        label.delete(lbTp)
+        label.delete(lbEn)
+        label.delete(lbBe)
+        label.new(bar_index, exitR > 0 ? tp : exitR < 0 ? sl0 : entry, (exitR > 0 ? "+" : "") + str.tostring(exitR, "#.##") + "R", style = label.style_label_center, color = exitR > 0 ? cUp : exitR < 0 ? cDn : color.gray, textcolor = color.white, size = size.small)
+        if not showHist
+            box.delete(bxSl)
+            box.delete(bxTp)
+            line.delete(lnEn)
         pos := 0
 
 bool opened = false
@@ -109,14 +136,40 @@ if pos == 0 and (buySig or sellSig) and (not closed or oppExit)
     t1    := false
     opened := true
     alert("XAUUSD " + (pos == 1 ? "MUA" : "BÁN") + " " + f(entry) + " | Thanh khoản bị quét " + f(pos == 1 ? liqLo : liqHi) + " | SL " + f(sl) + " | Hoà vốn tại " + f(be) + " | Chốt lời 1:" + str.tostring(tpR) + " " + f(tp), alert.freq_once_per_bar_close)
+    // Vẽ vùng lệnh mới
+    bxSl := box.new(bar_index, math.max(entry, sl), bar_index + 1, math.min(entry, sl), border_color = cDn, bgcolor = color.new(cDn, 82))
+    bxTp := box.new(bar_index, math.max(entry, tp), bar_index + 1, math.min(entry, tp), border_color = cUp, bgcolor = color.new(cUp, 82))
+    lnEn := line.new(bar_index, entry, bar_index + 1, entry, color = color.gray, width = 2)
+    lnBe := line.new(bar_index, be, bar_index + 1, be, color = color.new(color.gray, 30), style = line.style_dashed)
+    lbSl := label.new(bar_index + 1, sl, "", style = label.style_label_left, color = cDn, textcolor = color.white, size = size.small)
+    lbTp := label.new(bar_index + 1, tp, "", style = label.style_label_left, color = cUp, textcolor = color.white, size = size.small)
+    lbEn := label.new(bar_index + 1, entry, "", style = label.style_label_left, color = color.gray, textcolor = color.white, size = size.small)
+    lbBe := label.new(bar_index + 1, be, "", style = label.style_label_left, color = color.new(color.gray, 40), textcolor = color.white, size = size.small)
+
+// Lệnh đang mở: kéo dài vùng màu và cập nhật nhãn ở mép phải
+if pos != 0
+    x = bar_index + 3
+    box.set_right(bxSl, x)
+    box.set_right(bxTp, x)
+    line.set_x2(lnEn, x)
+    line.set_x2(lnBe, x)
+    side = pos == 1 ? "MUA" : "BÁN"
+    label.set_xy(lbTp, x, tp)
+    label.set_text(lbTp, "CHỐT LỜI " + f(tp) + "  (+" + f(math.abs(tp - entry)) + " · 1:" + str.tostring(tpR) + ")")
+    label.set_xy(lbSl, x, sl)
+    label.set_text(lbSl, (t1 ? "SL ĐÃ VỀ GIÁ VÀO " : "DỪNG LỖ ") + f(sl) + (t1 ? "" : "  (−" + f(math.abs(entry - sl)) + ")"))
+    label.set_xy(lbEn, x, entry)
+    label.set_text(lbEn, side + " " + f(entry))
+    label.set_xy(lbBe, x, be)
+    label.set_text(lbBe, t1 ? "Đã đạt 1:1 ✓" : "Dời SL hoà vốn " + f(be) + " (1:1)")
+    if t1
+        line.set_color(lnBe, color.new(cUp, 30))
 
 // ---------- Vẽ ----------
 plotshape(opened and pos == 1, "MUA", shape.triangleup, location.belowbar, color.new(color.teal, 0), size = size.small, text = "MUA")
 plotshape(opened and pos == -1, "BÁN", shape.triangledown, location.abovebar, color.new(color.red, 0), size = size.small, text = "BÁN")
-plot(pos != 0 ? entry : na, "Giá vào", color.gray, 1, plot.style_linebr)
-plot(pos != 0 ? sl : na, "Dừng lỗ", color.red, 2, plot.style_linebr)
-plot(pos != 0 and not t1 ? be : na, "Hoà vốn 1:1", color.new(color.gray, 40), 1, plot.style_linebr)
-plot(pos != 0 ? tp : na, "Chốt lời", color.teal, 2, plot.style_linebr)
+plot(pos != 0 ? sl : na, "Dừng lỗ", cDn, 2, plot.style_linebr)
+plot(pos != 0 ? tp : na, "Chốt lời", cUp, 2, plot.style_linebr)
 alertcondition(opened and pos == 1, "Nhịp Vàng MUA", "XAUUSD MUA {{close}}")
 alertcondition(opened and pos == -1, "Nhịp Vàng BÁN", "XAUUSD BÁN {{close}}")
 
