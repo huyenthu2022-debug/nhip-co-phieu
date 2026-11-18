@@ -40,6 +40,9 @@ nến mở từ 21h đến trước 3h giờ VN. Vào lệnh bằng **lệnh ch�
 4 nến M15 chưa khớp). Tới 1:1 dời dừng lỗ về giá vào; từ 1:3 kéo dừng lỗ luôn cách mức lãi cao nhất 1,5R; chốt hết ở 1:8.
 Kiểm định 2 năm nến M15 PAXG/USDT: 101 lệnh, thua 35%, hoà 39%, thắng 27% với lệnh thắng trung bình +3,9R; +0,70R mỗi lệnh,
 hệ số lợi nhuận 3,01, sụt giảm lớn nhất 6,4R (vào ngay giá đóng cửa, chốt cố định 1:3: 148 lệnh, +0,37R, hệ số 1,93).
+**Hệ 2 (song song): phá đỉnh/đáy 20 nến H1 theo H4.** Nến H1 đóng cửa trên đỉnh (dưới đáy) 20 nến H1 trước đó cùng chiều
+xu hướng H4 thì vào ngay; dừng lỗ 2 ATR H1; cùng cách dời SL/kéo SL/chốt tối đa 1:8. Đứng đầu khi so 12 phương pháp:
+2 năm PAXG 167 lệnh, +0,70R mỗi lệnh, hệ số 2,61; kiểm chứng 2 năm GC=F 150 lệnh, +0,53R, hệ số 2,18.
 Workflow tính lại mỗi 15 phút từ tối Chủ nhật đến tối thứ 6 (giờ UTC). Giá trực tiếp trên trang lấy từ gold-api.com.
 Khi trang đang mở, tín hiệu được tính **realtime** ngay trong trình duyệt: 5 giây sau mỗi nến M15 đóng, trang tải nến
 M15/H1/H4 PAXG/USDT từ Binance (dời theo giá XAU giao ngay) và chạy cùng quy tắc với `engine/gold.py`, rồi báo ngay.
