@@ -35,9 +35,11 @@ cd web && python -m http.server 8000
 Tab **Vàng XAUUSD** báo điểm MUA/BÁN theo hệ 3 khung: H4 xác định xu hướng (giá > EMA50 > EMA200 là tăng),
 H1 xem xét vùng hồi (EMA20 > EMA50 và giá vừa chạm EMA20), M15 vào lệnh sau khi giá quét thanh khoản: chọc thủng
 đáy (đỉnh) thấp nhất của 20 nến M15 trước đó rồi đóng cửa quay lại bằng nến cùng chiều lệnh. Dừng lỗ sau râu nến
-quét, 15–20 giá (bỏ lệnh nếu cần rộng hơn 20 giá). Lọc chất lượng: MUA chỉ khi RSI M15 ≤ 50 (BÁN khi ≥ 50) và bỏ
-nến mở từ 21h đến trước 3h giờ VN (giờ Mỹ mở cửa/cuối phiên Mỹ, nơi hệ thống lỗ nhiều nhất); giá đi được 1:1 thì dời dừng lỗ về giá vào; chốt lời ở R:R 1:3.
-Chọn sau khi so khoảng 60 cách trên 2 năm nến M15 PAXG/USDT: 148 lệnh, +0,37R mỗi lệnh, hệ số lợi nhuận 1,93, sụt giảm lớn nhất 6R sau khi lọc (chưa lọc: 197 lệnh, +0,21R, hệ số 1,48; bản 1:4: +0,31R nhưng dồn lãi vào nửa đầu; 1:3 đều hơn và tốt hơn trên 60 ngày gần nhất).
+quét, 15–20 giá (bỏ tín hiệu nếu cần rộng hơn 20 giá). Lọc chất lượng: MUA chỉ khi RSI M15 ≤ 50 (BÁN khi ≥ 50) và bỏ
+nến mở từ 21h đến trước 3h giờ VN. Vào lệnh bằng **lệnh chờ** tại mức hồi 50% từ giá đóng cửa về râu nến quét (huỷ nếu
+4 nến M15 chưa khớp). Tới 1:1 dời dừng lỗ về giá vào; từ 1:3 kéo dừng lỗ luôn cách mức lãi cao nhất 1,5R; chốt hết ở 1:8.
+Kiểm định 2 năm nến M15 PAXG/USDT: 101 lệnh, thua 35%, hoà 39%, thắng 27% với lệnh thắng trung bình +3,9R; +0,70R mỗi lệnh,
+hệ số lợi nhuận 3,01, sụt giảm lớn nhất 6,4R (vào ngay giá đóng cửa, chốt cố định 1:3: 148 lệnh, +0,37R, hệ số 1,93).
 Workflow tính lại mỗi 15 phút từ tối Chủ nhật đến tối thứ 6 (giờ UTC). Giá trực tiếp trên trang lấy từ gold-api.com.
 Khi trang đang mở, tín hiệu được tính **realtime** ngay trong trình duyệt: 5 giây sau mỗi nến M15 đóng, trang tải nến
 M15/H1/H4 PAXG/USDT từ Binance (dời theo giá XAU giao ngay) và chạy cùng quy tắc với `engine/gold.py`, rồi báo ngay.

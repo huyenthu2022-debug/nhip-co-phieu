@@ -229,7 +229,7 @@ def backtest(m15, buy, sell, start=200):
 
     def close_pos(i, r, reason, px):
         trades.append({**{k: pos[k] for k in ("side", "entry", "be", "trail", "tp", "liq", "t_sig")}, "sl": pos["sl0"],
-                       "t_in": pos["t_in"], "t_out": t[i], "exit": float(px), "r": round(float(r), 2), "reason": reason})
+                       "t_in": pos["t_in"], "t_out": t[i], "exit": float(px), "r": round(float(r), 2) + 0.0, "reason": reason})
 
     for i in range(start, len(m15)):
         sig = 1 if buy[i] else -1 if sell[i] else 0
