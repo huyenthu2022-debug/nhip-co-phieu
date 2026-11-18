@@ -137,7 +137,7 @@
   }
   function paintStats() {
     const s = G.stats;
-    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến M15 từ ${s.from.slice(0, 10)} (nguồn miễn phí chỉ có 60 ngày M15), một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kiểm định dài hơn trên 2 năm M15 của PAXG/USDT: 192 lệnh, +0,31R mỗi lệnh, hệ số lợi nhuận 1,69, sụt giảm lớn nhất 10R. Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
+    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến M15 từ ${s.from.slice(0, 10)} (nguồn miễn phí chỉ có 60 ngày M15), một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kiểm định dài hơn trên 2 năm M15 của PAXG/USDT: 197 lệnh, +0,21R mỗi lệnh, hệ số lợi nhuận 1,48, sụt giảm lớn nhất 9R. Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
     const card = (l, v, sub = "") => `<div class="stat"><div class="label">${l}</div><div class="v">${v}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
     $("#gStats").innerHTML = s.n ? [
       card("Số lệnh", s.n),

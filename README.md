@@ -36,7 +36,7 @@ Tab **Vàng XAUUSD** báo điểm MUA/BÁN theo hệ 3 khung: H4 xác định xu
 H1 xem xét vùng hồi (EMA20 > EMA50 và giá vừa chạm EMA20), M15 vào lệnh sau khi giá quét thanh khoản: chọc thủng
 đáy (đỉnh) thấp nhất của 20 nến M15 trước đó rồi đóng cửa quay lại bằng nến cùng chiều lệnh. Dừng lỗ sau râu nến
 quét, 15–20 giá (bỏ lệnh nếu cần rộng hơn 20 giá); giá đi được 1:1 thì dời dừng lỗ về giá vào; chốt lời ở R:R 1:3.
-Chọn sau khi so khoảng 60 cách trên 2 năm nến M15 PAXG/USDT: 192 lệnh, +0,31R mỗi lệnh, hệ số lợi nhuận 1,69.
+Chọn sau khi so khoảng 60 cách trên 2 năm nến M15 PAXG/USDT: 197 lệnh, +0,21R mỗi lệnh, hệ số lợi nhuận 1,48, sụt giảm lớn nhất 9R (bản 1:4: +0,31R nhưng dồn lãi vào nửa đầu; 1:3 đều hơn và tốt hơn trên 60 ngày gần nhất).
 Workflow tính lại mỗi 15 phút từ tối Chủ nhật đến tối thứ 6 (giờ UTC). Giá trực tiếp trên trang lấy từ gold-api.com.
 
 Nhận tín hiệu qua Telegram (tuỳ chọn): tạo bot với @BotFather, nhắn cho bot một tin, lấy chat id, rồi thêm hai

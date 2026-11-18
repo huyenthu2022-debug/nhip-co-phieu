@@ -19,7 +19,7 @@ Quy tắc, chỉ dùng nến đã đóng của khung lớn (không nhìn trướ
 
 Được chọn sau khi so khoảng 60 cách (dừng lỗ M15/H1/cố định, lọc D1, chốt 1:2 đến 1:5, chốt một nửa,
 kéo dừng lỗ, vào lệnh theo động lượng hoặc sau quét thanh khoản) trên 2 năm nến M15 PAXG/USDT:
-192 lệnh, +0,31R mỗi lệnh, hệ số lợi nhuận 1,69, lãi đều ở cả hai năm.
+Chốt 1:3: 197 lệnh, +0,21R mỗi lệnh, hệ số lợi nhuận 1,48, lãi đều ở cả hai năm (+22R/+20R).
 """
 import argparse
 import json
