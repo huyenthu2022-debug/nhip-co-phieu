@@ -11,7 +11,7 @@
   const sidePill = s => `<span class="pill ${s === "MUA" ? "sig-buy" : "sig-sell"}">${s}</span>`;
   const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const LIVE_MS = 15000, DATA_MS = 120000;
-  let G = null, live = null, prevLive = null, chart = null, tf = "h1", tvLoaded = false;
+  let G = null, live = null, prevLive = null, chart = null, tf = "m15", tvLoaded = false;
 
   /* ---------- TradingView (chỉ tải khi mở tab để trang chứng khoán không chậm) ---------- */
   function loadTV() {
@@ -25,7 +25,7 @@
     sc.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
     sc.async = true;
     sc.textContent = JSON.stringify({
-      autosize: true, symbol: "OANDA:XAUUSD", interval: "60", timezone: "Asia/Ho_Chi_Minh",
+      autosize: true, symbol: "OANDA:XAUUSD", interval: "15", timezone: "Asia/Ho_Chi_Minh",
       theme: dark ? "dark" : "light", style: "1", locale: "vi_VN", allow_symbol_change: true,
       withdateranges: true, hide_side_toolbar: false, details: false, calendar: false,
       studies: ["STD;EMA", "STD;RSI"], support_host: "https://www.tradingview.com",
@@ -103,8 +103,8 @@
     const t = o || f;
     if (!t) {
       el.innerHTML = `<div class="label">Trạng thái</div><div class="side" style="color:var(--muted)">Chờ tín hiệu</div>
-        <p class="sub">Chưa có lệnh mở. Hệ thống chỉ vào lệnh khi H4 có xu hướng rõ, giá H1 hồi về EMA20 rồi bật lại theo xu hướng.</p>
-        <p class="sub">${G.trend.H4 === "Tăng" ? "H4 đang tăng: chờ nhịp hồi để MUA." : G.trend.H4 === "Giảm" ? "H4 đang giảm: chờ nhịp hồi để BÁN." : "H4 đi ngang: tạm đứng ngoài."}</p>
+        <p class="sub">Chưa có lệnh mở. Hệ thống chỉ vào lệnh khi H4 có xu hướng rõ, H1 hồi về EMA20 và nến M15 xác nhận bật lại theo xu hướng.</p>
+        <p><b>${G.status}</b></p>
         ${lastTrade()}`;
       return;
     }
@@ -120,7 +120,7 @@
         ${row("TP2", t.tp2, "R:R 1:3", "up")}
       </div>
       ${ladder(t, p)}
-      <p class="sig-meta">Vào lúc ${t.t_in.replace("T", " ")} (giờ VN, nến H1). Chạm TP1 chốt một nửa và dời dừng lỗ về giá vào.</p>
+      <p class="sig-meta">Vào lúc ${t.t_in.replace("T", " ")} (giờ VN, nến M15). Chạm TP1 chốt một nửa và dời dừng lỗ về giá vào.</p>
       ${lastTrade()}`;
   }
   function ladder(t, p) {
@@ -135,14 +135,14 @@
     return x ? `<div class="sig-meta" style="border-top:1px solid var(--line);padding-top:10px">Lệnh gần nhất: ${sidePill(x.side)} ${fmt(x.entry)} → ${fmt(x.exit)} · ${x.reason} · <b class="${x.r >= 0 ? "up" : "down"}">${x.r > 0 ? "+" : ""}${fmt(x.r)}R</b></div>` : "";
   }
   function paintStats() {
-    const s = G.stats, s9 = G.stats_90d;
-    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến H1 từ ${s.from.slice(0, 10)}, một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
+    const s = G.stats;
+    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến M15 từ ${s.from.slice(0, 10)} (nguồn miễn phí chỉ có 60 ngày M15), một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
     const card = (l, v, sub = "") => `<div class="stat"><div class="label">${l}</div><div class="v">${v}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
     $("#gStats").innerHTML = s.n ? [
-      card("Số lệnh", s.n, s9.n ? `${s9.n} lệnh trong 90 ngày` : ""),
-      card("Tỉ lệ thắng", fmt(s.win, 1) + "%", s9.n ? `90 ngày: ${fmt(s9.win, 1)}%` : ""),
+      card("Số lệnh", s.n),
+      card("Tỉ lệ thắng", fmt(s.win, 1) + "%"),
       card("Lợi nhuận TB", (s.avg_r >= 0 ? "+" : "") + fmt(s.avg_r) + "R", "mỗi lệnh"),
-      card("Tổng", (s.total_r >= 0 ? "+" : "") + fmt(s.total_r, 1) + "R", s9.n ? `90 ngày: ${s9.total_r >= 0 ? "+" : ""}${fmt(s9.total_r, 1)}R` : ""),
+      card("Tổng", (s.total_r >= 0 ? "+" : "") + fmt(s.total_r, 1) + "R"),
       card("Hệ số lợi nhuận", s.pf == null ? "–" : fmt(s.pf), "tổng lãi / tổng lỗ"),
       card("Sụt giảm lớn nhất", "−" + fmt(s.max_dd_r, 1) + "R"),
     ].join("") : "";
@@ -169,7 +169,7 @@
     line(c.ema20, cssVar("--accent")); line(c.ema50, cssVar("--ref")); line(c.ema200, cssVar("--ceil"));
     // Đặt mũi tên vào nến chứa thời điểm vào lệnh
     const toTs = s => Date.parse(s + ":00+07:00") / 1000;
-    const step = tf === "h1" ? 3600 : 14400, t0 = c.t[0];
+    const step = { m15: 900, h1: 3600, h4: 14400 }[tf], t0 = c.t[0];
     const snap = ts => c.t[0] + Math.floor((ts - t0) / step) * step;
     const all = [...G.trades, ...(G.open ? [G.open] : [])];
     const marks = all.map(x => ({ ts: snap(toTs(x.t_in)), x })).filter(m => m.ts >= t0).map(({ ts, x }) => x.side === "MUA"
@@ -187,8 +187,9 @@
 
   function render() {
     $("#gDemo").hidden = !G.demo;
-    $("#gTrend").innerHTML = ["H1", "H4", "D1"].map(k => `<span class="sub">${k}</span>${pill(G.trend[k])}`).join(" ");
-    $("#gInd").textContent = `${fmt(G.rsi_h1, 0)} · ${fmt(G.atr_h1)}`;
+    const zp = z => z === "MUA" ? pill("Tăng").replace(">Tăng<", ">Vùng MUA<") : z === "BÁN" ? pill("Giảm").replace(">Giảm<", ">Vùng BÁN<") : pill("Đi ngang").replace(">Đi ngang<", ">Chưa có vùng<");
+    $("#gTrend").innerHTML = `<span class="sub">H4</span>${pill(G.tf.H4)} <span class="sub">H1</span>${zp(G.tf.H1)} <span class="sub">M15</span>${pill(G.tf.M15)}`;
+    $("#gInd").textContent = `${fmt(G.rsi_m15, 0)} · ${fmt(G.rsi_h1, 0)}`;
     $("#gAsof").textContent = `Tín hiệu tính lúc ${G.generated_at.slice(11)} ${G.generated_at.slice(8, 10)}/${G.generated_at.slice(5, 7)}`;
     paintHead(); paintSignal(); paintStats();
     if (visible()) paintChart();

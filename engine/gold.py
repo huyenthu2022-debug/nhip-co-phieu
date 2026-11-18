@@ -1,17 +1,19 @@
-"""Tín hiệu mua/bán vàng XAUUSD: ghi web/data/gold.json.
+"""Tín hiệu mua/bán vàng XAUUSD theo 3 khung: ghi web/data/gold.json.
 
     python engine/gold.py          # dữ liệu thật (Yahoo GC=F + giá giao ngay gold-api.com)
     python engine/gold.py --demo   # dữ liệu mô phỏng, không cần mạng
 
-Nguồn: nến 1 giờ hợp đồng vàng tương lai COMEX (GC=F, Yahoo) được dời theo chênh lệch
-với giá giao ngay hiện tại để mức giá khớp XAUUSD; dự phòng là PAXG/USDT (Binance).
+Nguồn: nến 1 giờ (2 năm) và 15 phút (60 ngày) của vàng tương lai COMEX (GC=F, Yahoo), dời theo
+chênh lệch với giá giao ngay hiện tại để mức giá khớp XAUUSD; dự phòng là PAXG/USDT (Binance).
 
-Quy tắc (khung H1, lọc xu hướng bằng H4):
-  MUA  khi H4 tăng (giá > EMA50 > EMA200), H1 có EMA20 > EMA50, giá vừa chạm lại EMA20
-       trong 3 nến gần nhất rồi đóng cửa trên EMA20, RSI14 cắt lên 50 hoặc MACD hist chuyển dương.
-  BÁN  ngược lại khi H4 giảm.
-  Dừng lỗ sau đáy/đỉnh 10 nến gần nhất thêm 0,3 ATR (rủi ro giới hạn 0,8–3 ATR).
-  Chốt lời TP1 = 2R (R:R 1:2), TP2 = 3R (R:R 1:3). Chạm TP1 thì chốt một nửa và dời dừng lỗ về giá vào.
+Quy tắc, chỉ dùng nến đã đóng của khung lớn (không nhìn trước tương lai):
+  H4  xu hướng:   Tăng khi giá > EMA50 > EMA200, Giảm khi ngược lại, còn lại đứng ngoài.
+  H1  xem xét:    Vùng MUA khi EMA20 > EMA50, giá còn trên EMA50 và đã hồi chạm EMA20 trong 3 nến H1
+                  gần nhất (RSI < 70). Vùng BÁN ngược lại.
+  M15 điểm vào:   trong vùng H1 cùng chiều H4, nến M15 đóng cửa vượt lại EMA20 kèm RSI14 cắt 50
+                  hoặc MACD hist đổi dấu theo chiều lệnh.
+  Dừng lỗ sau đáy/đỉnh 12 nến M15 thêm 0,3 ATR (rủi ro giới hạn 1–4 ATR M15).
+  TP1 = 2R (R:R 1:2): chốt một nửa và dời dừng lỗ về giá vào. TP2 = 3R (R:R 1:3).
 """
 import argparse
 import json
@@ -33,7 +35,9 @@ OUT = Path(__file__).resolve().parent.parent / "web" / "data" / "gold.json"
 VN_TZ = timezone(timedelta(hours=7))
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"}
 RR_TP1, RR_TP2 = 2.0, 3.0
-CHART_H1, CHART_H4 = 360, 300
+SWING_BARS, SL_BUF_ATR, MIN_RISK_ATR, MAX_RISK_ATR = 12, 0.3, 1.0, 4.0
+CHART = {"m15": 400, "h1": 360, "h4": 300}
+OHLC = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
 
 def _get(url):
@@ -52,8 +56,8 @@ def spot_price():
     return float(j["price"]), "PAXG/USDT"
 
 
-def yahoo_h1():
-    j = _get("https://query2.finance.yahoo.com/v8/finance/chart/GC=F?interval=1h&range=730d")
+def yahoo(interval, rng):
+    j = _get(f"https://query2.finance.yahoo.com/v8/finance/chart/GC=F?interval={interval}&range={rng}")
     r = j["chart"]["result"][0]
     q = r["indicators"]["quote"][0]
     df = pd.DataFrame({k: q[k] for k in ("open", "high", "low", "close", "volume")},
@@ -61,10 +65,10 @@ def yahoo_h1():
     return df.dropna(subset=["open", "high", "low", "close"]).astype(float)
 
 
-def binance_h1(n=8000):
+def binance(interval, n):
     rows, end = [], None
     while len(rows) < n:
-        url = "https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=1000"
+        url = f"https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval={interval}&limit=1000"
         if end:
             url += f"&endTime={end}"
         k = _get(url)
@@ -78,41 +82,48 @@ def binance_h1(n=8000):
     return df[df.index.dayofweek < 5]  # vàng giao ngay nghỉ cuối tuần, bỏ nến thứ 7
 
 
+def clean(df):
+    df = df[~df.index.duplicated(keep="last")].sort_index()
+    return df[df.index.second == 0]  # Yahoo đôi khi thêm một nến "hiện tại" lệch mốc
+
+
+def shift_to_spot(df, spot):
+    basis = spot - df["close"].iloc[-1]
+    if abs(basis) < 0.05 * spot:  # chỉ dời khi chênh lệch hợp lý (phí lưu kho hợp đồng tương lai)
+        df = df.copy()
+        for k in ("open", "high", "low", "close"):
+            df[k] = df[k] + basis
+    return df, basis
+
+
 def fetch_real():
     spot, spot_src = spot_price()
     try:
-        df, src = yahoo_h1(), "COMEX GC=F (Yahoo), dời theo giá giao ngay"
+        h1, m15, src = yahoo("1h", "730d"), yahoo("15m", "60d"), "COMEX GC=F (Yahoo), dời theo giá giao ngay"
     except Exception as e:
         print(f"Yahoo lỗi: {e}, dùng PAXG", file=sys.stderr)
-        df, src = binance_h1(), "PAXG/USDT (Binance)"
-    df = df[~df.index.duplicated(keep="last")].sort_index()
-    basis = spot - df["close"].iloc[-1]
-    if abs(basis) < 0.05 * spot:  # chỉ dời khi chênh lệch hợp lý (phí lưu kho hợp đồng tương lai)
-        for k in ("open", "high", "low", "close"):
-            df[k] = df[k] + basis
-    return df, {"source": src, "spot_source": spot_src, "spot": spot, "basis": round(float(basis), 2)}
+        h1, m15, src = binance("1h", 9000), binance("15m", 6000), "PAXG/USDT (Binance)"
+    h1, _ = shift_to_spot(clean(h1), spot)
+    m15, basis = shift_to_spot(clean(m15), spot)
+    return h1, m15, {"source": src, "spot_source": spot_src, "spot": spot, "basis": round(float(basis), 2)}
 
 
 def demo():
     rng = np.random.default_rng(7)
-    idx = pd.date_range(end=pd.Timestamp.now(tz="UTC").floor("h"), periods=9000, freq="h")
+    idx = pd.date_range(end=pd.Timestamp.now(tz="UTC").floor("15min"), periods=48000, freq="15min")
     idx = idx[idx.dayofweek < 5]
     n = len(idx)
-    drift = np.repeat(rng.choice([-0.0004, 0.0001, 0.0005], size=n // 200 + 1), 200)[:n]
-    c = 3000 * np.exp(np.cumsum(drift + rng.normal(0, 0.0025, n)))
+    drift = np.repeat(rng.choice([-0.0001, 0.00002, 0.00012], size=n // 800 + 1), 800)[:n]
+    c = 3000 * np.exp(np.cumsum(drift + rng.normal(0, 0.0012, n)))
     o = np.r_[c[0], c[:-1]]
-    sp = np.abs(rng.normal(0, 0.0018, n)) * c
-    df = pd.DataFrame({"open": o, "high": np.maximum(o, c) + sp, "low": np.minimum(o, c) - sp, "close": c,
-                       "volume": rng.integers(1000, 9000, n).astype(float)}, index=idx)
-    return df, {"source": "MÔ PHỎNG", "spot_source": "MÔ PHỎNG", "spot": float(c[-1]), "basis": 0}
+    sp = np.abs(rng.normal(0, 0.0009, n)) * c
+    m15 = pd.DataFrame({"open": o, "high": np.maximum(o, c) + sp, "low": np.minimum(o, c) - sp, "close": c,
+                        "volume": rng.integers(100, 900, n).astype(float)}, index=idx)
+    h1 = m15.resample("1h").agg(OHLC).dropna()
+    return h1, m15.tail(5600), {"source": "MÔ PHỎNG", "spot_source": "MÔ PHỎNG", "spot": float(c[-1]), "basis": 0}
 
 
 # ---------- Chỉ báo và tín hiệu ----------
-
-def to_h4(df):
-    return df.resample("4h", origin="epoch").agg({"open": "first", "high": "max", "low": "min",
-                                                   "close": "last", "volume": "sum"}).dropna()
-
 
 def add_ind(df):
     df = df.copy()
@@ -130,42 +141,50 @@ def trend_of(row):
     return "Đi ngang"
 
 
-def h4_trend_on_h1(h1, h4):
-    """Xu hướng H4 của nến H4 đã đóng gần nhất, gắn vào từng nến H1 (không nhìn trước tương lai)."""
-    tr = h4.apply(trend_of, axis=1)
-    tr.index = tr.index + pd.Timedelta(hours=4)  # chỉ biết khi nến H4 đóng
-    return tr.reindex(h1.index, method="ffill").fillna("Đi ngang")
+def h1_zones(h1):
+    """Vùng xem xét trên H1: 'MUA', 'BÁN' hoặc ''."""
+    c, e20, e50 = h1["close"], h1["ema20"], h1["ema50"]
+    touch_dn = (h1["low"] <= e20).rolling(3).max().astype(bool)
+    touch_up = (h1["high"] >= e20).rolling(3).max().astype(bool)
+    buy = (e20 > e50) & (c > e50) & touch_dn & (h1["rsi"] < 70)
+    sell = (e20 < e50) & (c < e50) & touch_up & (h1["rsi"] > 30)
+    return pd.Series(np.where(buy, "MUA", np.where(sell, "BÁN", "")), index=h1.index)
 
 
-def setups(h1, h4tr):
-    c, e20 = h1["close"], h1["ema20"]
-    touched_dn = (h1["low"] <= e20).rolling(3).max().astype(bool)
-    touched_up = (h1["high"] >= e20).rolling(3).max().astype(bool)
-    mom_up = ((h1["rsi"] > 50) & (h1["rsi"].shift() <= 50)) | ((h1["macdh"] > 0) & (h1["macdh"].shift() <= 0))
-    mom_dn = ((h1["rsi"] < 50) & (h1["rsi"].shift() >= 50)) | ((h1["macdh"] < 0) & (h1["macdh"].shift() >= 0))
-    buy = (h4tr == "Tăng") & (e20 > h1["ema50"]) & touched_dn & (c > e20) & mom_up & (h1["rsi"] < 70)
-    sell = (h4tr == "Giảm") & (e20 < h1["ema50"]) & touched_up & (c < e20) & mom_dn & (h1["rsi"] > 30)
+def closed_on(series, period, target_index):
+    """Gắn giá trị của nến khung lớn ĐÃ ĐÓNG gần nhất vào từng nến khung nhỏ."""
+    s = series.copy()
+    s.index = s.index + period  # chỉ biết giá trị khi nến khung lớn đóng
+    return s.reindex(target_index, method="ffill")
+
+
+def setups(m15, h4tr, zone):
+    c, e20 = m15["close"], m15["ema20"]
+    mom_up = ((m15["rsi"] > 50) & (m15["rsi"].shift() <= 50)) | ((m15["macdh"] > 0) & (m15["macdh"].shift() <= 0))
+    mom_dn = ((m15["rsi"] < 50) & (m15["rsi"].shift() >= 50)) | ((m15["macdh"] < 0) & (m15["macdh"].shift() >= 0))
+    buy = (h4tr == "Tăng") & (zone == "MUA") & (c > e20) & mom_up & (m15["rsi"] < 70)
+    sell = (h4tr == "Giảm") & (zone == "BÁN") & (c < e20) & mom_dn & (m15["rsi"] > 30)
     return buy.fillna(False).to_numpy(), sell.fillna(False).to_numpy()
 
 
-def plan(side, i, h1):
-    """Điểm vào, dừng lỗ, TP1 (1:2), TP2 (1:3) cho tín hiệu ở nến i."""
-    entry, a = float(h1["close"].iloc[i]), float(h1["atr"].iloc[i])
-    lo, hi = float(h1["low"].iloc[i - 9:i + 1].min()), float(h1["high"].iloc[i - 9:i + 1].max())
-    risk = (entry - lo + 0.3 * a) if side == "MUA" else (hi - entry + 0.3 * a)
-    risk = min(max(risk, 0.8 * a), 3 * a)
+def plan(side, i, m15):
+    """Điểm vào, dừng lỗ, TP1 (1:2), TP2 (1:3) cho tín hiệu ở nến M15 thứ i."""
+    entry, a = float(m15["close"].iloc[i]), float(m15["atr"].iloc[i])
+    win = m15.iloc[max(0, i - SWING_BARS + 1):i + 1]
+    risk = (entry - win["low"].min() + SL_BUF_ATR * a) if side == "MUA" else (win["high"].max() - entry + SL_BUF_ATR * a)
+    risk = float(min(max(risk, MIN_RISK_ATR * a), MAX_RISK_ATR * a))
     d = 1 if side == "MUA" else -1
     return {"side": side, "entry": entry, "sl": entry - d * risk, "tp1": entry + d * RR_TP1 * risk,
             "tp2": entry + d * RR_TP2 * risk, "risk": risk}
 
 
-def backtest(h1, buy, sell, start=250):
+def backtest(m15, buy, sell, start=200):
     """Một lệnh mỗi lúc. Cùng nến chạm cả dừng lỗ và mục tiêu thì tính dừng lỗ trước (thận trọng).
-    Kết quả tính theo R: thua cả lệnh = -1R; chạm TP1 rồi hoà vốn = +1R; chạm TP2 = +2,5R."""
-    hi, lo, cl = (h1[k].to_numpy() for k in ("high", "low", "close"))
-    t = h1.index
+    Kết quả theo R: thua cả lệnh = -1R; chạm TP1 rồi hoà vốn = +1R; chạm TP2 = +2,5R."""
+    hi, lo, cl = (m15[k].to_numpy() for k in ("high", "low", "close"))
+    t = m15.index
     trades, pos = [], None
-    for i in range(start, len(h1)):
+    for i in range(start, len(m15)):
         if pos is not None:
             d = 1 if pos["side"] == "MUA" else -1
             hit_sl = (lo[i] <= pos["sl"]) if d == 1 else (hi[i] >= pos["sl"])
@@ -185,13 +204,14 @@ def backtest(h1, buy, sell, start=250):
                     r = 0.5 * RR_TP1 + 0.5 * r_now if pos["t1"] else r_now
                     res = r, "Tín hiệu ngược chiều", cl[i]
             if res:
-                trades.append({**{k: pos[k] for k in ("side", "entry", "tp1", "tp2")}, "sl": pos["sl0"], "t_in": pos["t_in"],
-                               "t_out": t[i], "exit": float(res[2]), "r": round(float(res[0]), 2), "reason": res[1]})
+                trades.append({**{k: pos[k] for k in ("side", "entry", "tp1", "tp2")}, "sl": pos["sl0"],
+                               "t_in": pos["t_in"], "t_out": t[i], "exit": float(res[2]),
+                               "r": round(float(res[0]), 2), "reason": res[1]})
                 pos = None
                 if not opposite:
                     continue
         if pos is None and (buy[i] or sell[i]):
-            p = plan("MUA" if buy[i] else "BÁN", i, h1)
+            p = plan("MUA" if buy[i] else "BÁN", i, m15)
             pos = {**p, "sl0": p["sl"], "t_in": t[i], "t1": False}
     return trades, pos
 
@@ -235,40 +255,61 @@ def trade_out(x):
     return o
 
 
-def build(df, meta):
-    h1 = add_ind(df)
-    h4 = add_ind(to_h4(df))
-    d1 = add_ind(df.resample("1D").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna())
-    h4tr = h4_trend_on_h1(h1, h4)
-    buy, sell = setups(h1, h4tr)
-    trades, pos = backtest(h1, buy, sell)
-    last = h1.iloc[-1]
+def last_closed(df, period, now):
+    """Vị trí nến đã đóng gần nhất (nến cuối có thể còn dở dang)."""
+    return len(df) - 1 if now - df.index[-1] >= period else len(df) - 2
+
+
+def build(h1_raw, m15_raw, meta):
+    now = pd.Timestamp.now(tz="UTC")
+    H1, H4, M15 = pd.Timedelta(hours=1), pd.Timedelta(hours=4), pd.Timedelta(minutes=15)
+    m15 = add_ind(m15_raw)
+    h1 = add_ind(h1_raw)
+    h4 = add_ind(h1_raw.resample("4h", origin="epoch").agg(OHLC).dropna())
+    d1 = h1_raw.resample("1D").agg(OHLC).dropna()
+    h4tr_all, zone_all = h4.apply(trend_of, axis=1), h1_zones(h1)
+    h4tr = closed_on(h4tr_all, H4, m15.index).fillna("Đi ngang")
+    zone = closed_on(zone_all, H1, m15.index).fillna("")
+    buy, sell = setups(m15, h4tr, zone)
+    trades, pos = backtest(m15, buy, sell)
+
+    last = m15.iloc[-1]
     prev_day = d1["close"].iloc[-2] if len(d1) > 1 else last["close"]
     open_pos = None
     if pos:
         d = 1 if pos["side"] == "MUA" else -1
         open_pos = {**trade_out({**pos, "sl": pos["sl0"]}), "tp1_hit": pos["t1"], "sl_now": r2(pos["sl"]),
                     "r_now": round(float(d * (last["close"] - pos["entry"]) / pos["risk"]), 2)}
-    # Tín hiệu trên nến vừa đóng (bỏ qua nến cuối nếu còn dở dang)
-    i_closed = len(h1) - 1 if (pd.Timestamp.now(tz="UTC") - h1.index[-1]) >= pd.Timedelta(hours=1) else len(h1) - 2
+    # Tín hiệu mới: trên 4 nến M15 đã đóng gần nhất (bù khi lịch chạy của GitHub bị trễ)
+    i_m = last_closed(m15, M15, now)
+    taken = {x["t_in"] for x in trades} | ({pos["t_in"]} if pos else set())  # chỉ tín hiệu thực sự mở lệnh
     fresh = None
-    if buy[i_closed] or sell[i_closed]:
-        p = plan("MUA" if buy[i_closed] else "BÁN", i_closed, h1)
-        fresh = {**trade_out({**p, "t_in": h1.index[i_closed]}), "id": f"{p['side']}-{int(h1.index[i_closed].timestamp())}"}
-    trend = {"H1": "Tăng" if last["ema20"] > last["ema50"] and last["close"] > last["ema20"] else
-             ("Giảm" if last["ema20"] < last["ema50"] and last["close"] < last["ema20"] else "Đi ngang"),
-             "H4": trend_of(h4.iloc[-1]), "D1": trend_of(d1.iloc[-1])}
+    for i in range(i_m, max(i_m - 4, 0), -1):
+        if (buy[i] or sell[i]) and m15.index[i] in taken:
+            p = plan("MUA" if buy[i] else "BÁN", i, m15)
+            fresh = {**trade_out({**p, "t_in": m15.index[i]}), "id": f"{p['side']}-{int(m15.index[i].timestamp())}"}
+            break
+
+    i_h4, i_h1 = last_closed(h4, H4, now), last_closed(h1, H1, now)
+    t4, z1 = trend_of(h4.iloc[i_h4]), zone_all.iloc[i_h1]
+    lm = m15.iloc[i_m]
+    m15_state = "Tăng" if lm["close"] > lm["ema20"] > lm["ema50"] else "Giảm" if lm["close"] < lm["ema20"] < lm["ema50"] else "Đi ngang"
+    if t4 == "Đi ngang":
+        status = "H4 đi ngang: đứng ngoài, chờ xu hướng rõ."
+    elif z1 != ("MUA" if t4 == "Tăng" else "BÁN"):
+        status = f"H4 {t4.lower()}: chờ giá H1 hồi về EMA20 để vào vùng {'MUA' if t4 == 'Tăng' else 'BÁN'}."
+    else:
+        status = f"H4 {t4.lower()}, H1 đang ở vùng {z1}: chờ nến M15 xác nhận để vào lệnh."
     s = stats(trades)
-    s30 = stats([x for x in trades if x["t_in"] >= h1.index[-1] - pd.Timedelta(days=90)])
     return {
         "generated_at": datetime.now(VN_TZ).strftime("%Y-%m-%dT%H:%M"),
         "symbol": "XAUUSD", "demo": meta["source"] == "MÔ PHỎNG", **meta,
         "price": r2(last["close"]), "day_chg": r2(last["close"] / prev_day * 100 - 100),
-        "rsi_h1": r2(last["rsi"]), "atr_h1": r2(last["atr"]), "atr_h4": r2(h4["atr"].iloc[-1]),
-        "trend": trend, "fresh": fresh, "open": open_pos,
-        "stats": s, "stats_90d": s30, "rr": [RR_TP1, RR_TP2],
+        "rsi_m15": r2(lm["rsi"]), "rsi_h1": r2(h1["rsi"].iloc[i_h1]), "atr_m15": r2(lm["atr"]),
+        "tf": {"H4": t4, "H1": z1 or "Chưa có vùng", "M15": m15_state}, "status": status,
+        "fresh": fresh, "open": open_pos, "stats": s, "rr": [RR_TP1, RR_TP2],
         "trades": [trade_out(x) for x in trades[-30:]][::-1],
-        "h1": bars(h1, CHART_H1), "h4": bars(h4, CHART_H4),
+        "m15": bars(m15, CHART["m15"]), "h1": bars(h1, CHART["h1"]), "h4": bars(h4, CHART["h4"]),
     }
 
 
@@ -278,14 +319,14 @@ def telegram(data, prev):
     tok, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     if not (tok and chat) or data["demo"]:
         return
-    sent = set((prev or {}).get("tg_sent", []))
+    sent = set(data.get("tg_sent", []))
     msgs = []
     f = data["fresh"]
     if f and f["id"] not in sent:
         icon = "🟢" if f["side"] == "MUA" else "🔴"
         msgs.append((f["id"], f"{icon} XAUUSD {f['side']} {f['entry']}\nDừng lỗ: {f['sl']}\nTP1 (1:2): {f['tp1']}\n"
-                     f"TP2 (1:3): {f['tp2']}\nXu hướng H4: {data['trend']['H4']}, RSI H1: {data['rsi_h1']}\n"
-                     f"Nến H1 {f['t_in']} (giờ VN). Không phải khuyến nghị đầu tư."))
+                     f"TP2 (1:3): {f['tp2']}\nH4 {data['tf']['H4']} · H1 vùng {data['tf']['H1']} · M15 xác nhận\n"
+                     f"Nến M15 {f['t_in'].replace('T', ' ')} (giờ VN). Không phải khuyến nghị đầu tư."))
     for t in data["trades"][:3]:
         key = f"x-{t['side']}-{t['t_in']}"
         if key not in sent and (prev or {}).get("open") and prev["open"]["t_in"] == t["t_in"]:
@@ -304,8 +345,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--demo", action="store_true")
     a = ap.parse_args()
-    df, meta = demo() if a.demo else fetch_real()
-    data = build(df, meta)
+    h1, m15, meta = demo() if a.demo else fetch_real()
+    data = build(h1, m15, meta)
     prev = None
     try:
         prev = json.loads(OUT.read_text())
@@ -317,8 +358,10 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
     s = data["stats"]
-    print(f"XAUUSD {data['price']} | xu hướng {data['trend']} | mới: {data['fresh']} | đang mở: {data['open']}")
-    print(f"Backtest từ {s.get('from')}: {s['n']} lệnh, thắng {s.get('win')}%, TB {s.get('avg_r')}R, tổng {s.get('total_r')}R, PF {s.get('pf')}")
+    print(f"XAUUSD {data['price']} | {data['tf']} | {data['status']}")
+    print(f"Mới: {data['fresh']} | đang mở: {data['open']}")
+    print(f"Backtest M15 từ {s.get('from')}: {s['n']} lệnh, thắng {s.get('win')}%, TB {s.get('avg_r')}R, "
+          f"tổng {s.get('total_r')}R, PF {s.get('pf')}, sụt giảm {s.get('max_dd_r')}R")
 
 
 if __name__ == "__main__":
