@@ -98,31 +98,24 @@ def show(name, mask_fn):
     print(f"{name:28s} n={a['n']:3d} thắng {a['win']:4.1f}% thua {a['loss']:4.1f}% TB {a['avg']:+.2f}R tổng {a['tot']:+5.1f}R "
           f"pf {a['pf']:.2f} dd {a['dd']:4.1f} | nửa {a['h1']:+5.1f}/{a['h2']:+5.1f} | {gs}")
 
-print("##### Từng bộ lọc")
-for k, fn in variants.items():
-    show(k, fn)
-
-# Giờ trong ngày: tổng R theo khung 3 giờ (giờ VN), để thấy phiên nào kém
-tr, _ = gold.backtest(P[0], P[1], P[2], 2000)
-hr = pd.Series({x["t_in"]: x["r"] for x in tr})
-hb = ((hr.index + pd.Timedelta(hours=7)).hour // 3) * 3
-print("##### R theo giờ VN (khối 3h):", hr.groupby(hb).agg(["count", "sum"]).round(1).to_dict("index"))
-# Phân vị đặc trưng của lệnh thắng vs thua
-F = P[3]
-rows = []
-for x in tr:
-    row = F.loc[x["t_in"]].to_dict(); row["r"] = x["r"]; rows.append(row)
-D = pd.DataFrame(rows)
-print("##### Trung vị đặc trưng: thắng / hoà / thua")
-print(D.groupby(np.sign(D["r"]))[["depth", "reclaim", "body", "cpos", "rsi", "age", "atrq", "h1dist", "d1", "rawrisk", "macd"]].median().round(2).to_string())
-import itertools
-print("##### Kết hợp 2 bộ lọc tốt nhất (theo TB R, cần ≥80 lệnh và cả hai nửa dương)")
-keys = [k for k in variants if k != "gốc"]
-res = []
-for k1, k2 in itertools.combinations(keys, 2):
-    fn = (lambda a1, a2: lambda f: a1(f).fillna(False) & a2(f).fillna(False))(variants[k1], variants[k2])
-    a = run(P[0], P[1], P[2], fn(P[3]), 2000)
-    if a and a["n"] >= 80 and a["h1"] > 0 and a["h2"] > 0:
-        res.append((a["avg"], k1, k2, fn))
-for avg, k1, k2, fn in sorted(res, reverse=True)[:12]:
-    show(f"{k1} + {k2}"[:60], fn)
+rsi50 = lambda f: f["rsi"] <= 50
+no2124 = lambda f: ~f["hour"].isin([21, 22, 23])
+no2103 = lambda f: ~f["hour"].isin([21, 22, 23, 0, 1, 2])
+day = lambda f: f["hour"].between(6, 18)
+sl15 = lambda f: f["rawrisk"] <= 15
+AND = lambda *fs: (lambda f: np.logical_and.reduce([x(f).fillna(False).to_numpy() for x in fs]))
+cands = {"gốc": variants["gốc"], "A RSI≤50": rsi50, "B RSI≤50 + bỏ 21–24h": AND(rsi50, no2124),
+         "C RSI≤50 + bỏ 21–3h": AND(rsi50, no2103), "D RSI≤50 + 6–18h": AND(rsi50, day),
+         "E RSI≤50 + bỏ 21–24h + SL gốc≤15": AND(rsi50, no2124, sl15), "F bỏ 21–24h": no2124,
+         "G RSI≤45 + bỏ 21–24h": AND(lambda f: f["rsi"] <= 45, no2124), "H RSI≤55 + bỏ 21–24h": AND(lambda f: f["rsi"] <= 55, no2124)}
+def thirds(fn):
+    tr, _ = gold.backtest(P[0], P[1] & fn(P[3]), P[2] & fn(P[3]), 2000)
+    r = pd.Series([x["r"] for x in tr], index=[x["t_in"] for x in tr])
+    q = r.groupby(r.index.to_period("Q").astype(str)).sum()
+    return " ".join(f"{v:+.0f}" for v in q.values), (q > 0).sum(), len(q)
+print("##### Ứng viên")
+for k, fn in cands.items():
+    fn2 = (lambda fn: lambda f: pd.Series(np.asarray(fn(f)), index=f.index).fillna(False).astype(bool))(fn)
+    show(k, fn2)
+    t, pos, n = thirds(lambda f: fn2(f).to_numpy())
+    print("     theo quý:", t, f"({pos}/{n} quý lãi)")
