@@ -38,6 +38,9 @@ H1 xem xét vùng hồi (EMA20 > EMA50 và giá vừa chạm EMA20), M15 vào l�
 quét, 15–20 giá (bỏ lệnh nếu cần rộng hơn 20 giá); giá đi được 1:1 thì dời dừng lỗ về giá vào; chốt lời ở R:R 1:3.
 Chọn sau khi so khoảng 60 cách trên 2 năm nến M15 PAXG/USDT: 197 lệnh, +0,21R mỗi lệnh, hệ số lợi nhuận 1,48, sụt giảm lớn nhất 9R (bản 1:4: +0,31R nhưng dồn lãi vào nửa đầu; 1:3 đều hơn và tốt hơn trên 60 ngày gần nhất).
 Workflow tính lại mỗi 15 phút từ tối Chủ nhật đến tối thứ 6 (giờ UTC). Giá trực tiếp trên trang lấy từ gold-api.com.
+Khi trang đang mở, tín hiệu được tính **realtime** ngay trong trình duyệt: 5 giây sau mỗi nến M15 đóng, trang tải nến
+M15/H1/H4 PAXG/USDT từ Binance (dời theo giá XAU giao ngay) và chạy cùng quy tắc với `engine/gold.py`, rồi báo ngay.
+`engine/rt_check.js` chạy phần tính đó bằng Node để so khớp với engine Python (đã khớp 100% tín hiệu và lệnh).
 
 Nhận tín hiệu qua Telegram (tuỳ chọn): tạo bot với @BotFather, nhắn cho bot một tin, lấy chat id, rồi thêm hai
 secret `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID` trong Settings → Secrets and variables → Actions.
