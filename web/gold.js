@@ -103,7 +103,7 @@
     const t = o || f;
     if (!t) {
       el.innerHTML = `<div class="label">Trạng thái</div><div class="side" style="color:var(--muted)">Chờ tín hiệu</div>
-        <p class="sub">Chưa có lệnh mở. Hệ thống chỉ vào lệnh khi H4 có xu hướng rõ, H1 hồi về EMA20 và nến M15 xác nhận bật lại theo xu hướng.</p>
+        <p class="sub">Chưa có lệnh mở. Hệ thống chỉ vào lệnh khi H4 có xu hướng rõ, H1 hồi về EMA20 và giá M15 quét thanh khoản (chọc thủng đáy/đỉnh 20 nến gần nhất) rồi đóng cửa quay lại.</p>
         <p><b>${G.status}</b></p>
         ${lastTrade()}`;
       return;
@@ -114,13 +114,14 @@
         <div><div class="label">${o ? "Lệnh đang mở" : "Tín hiệu mới"}</div><div class="side ${d > 0 ? "up" : "down"}">${t.side === "MUA" ? "MUA (Buy)" : "BÁN (Sell)"}</div></div>
         <div style="text-align:right"><div class="label">Lãi/lỗ hiện tại</div><div class="num ${rNow >= 0 ? "up" : "down"}" style="font-size:18px;font-weight:700">${rNow >= 0 ? "+" : ""}${fmt(rNow)}R</div></div></div>
       <div class="lv">
+        ${t.liq != null ? row("Thanh khoản bị quét", t.liq, "") : ""}
         ${row("Giá vào", t.entry, "")}
         ${row(o && o.be_hit ? "Dừng lỗ (đã về giá vào)" : "Dừng lỗ", sl, `−${fmt(risk)}`, "down")}
         ${row(`Dời SL hoà vốn${o && o.be_hit ? " ✓" : ""}`, t.be, "1:1", "")}
         ${row("Chốt lời", t.tp, "R:R 1:4", "up")}
       </div>
       ${ladder(t, p)}
-      <p class="sig-meta">Vào lúc ${t.t_in.replace("T", " ")} (giờ VN, nến M15). Giá đi được 1:1 thì dời dừng lỗ về giá vào, chốt toàn bộ ở 1:4.</p>
+      <p class="sig-meta">Vào lúc ${t.t_in.replace("T", " ")} (giờ VN, nến M15). Dừng lỗ đặt sau râu nến quét. Giá đi được 1:1 thì dời dừng lỗ về giá vào, chốt toàn bộ ở 1:4.</p>
       ${lastTrade()}`;
   }
   function ladder(t, p) {
@@ -136,7 +137,7 @@
   }
   function paintStats() {
     const s = G.stats;
-    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến M15 từ ${s.from.slice(0, 10)} (nguồn miễn phí chỉ có 60 ngày M15), một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kiểm định dài hơn trên 2 năm M15 của PAXG/USDT: 207 lệnh, +0,28R mỗi lệnh, hệ số lợi nhuận 1,55, sụt giảm lớn nhất 10R. Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
+    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến M15 từ ${s.from.slice(0, 10)} (nguồn miễn phí chỉ có 60 ngày M15), một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kiểm định dài hơn trên 2 năm M15 của PAXG/USDT: 192 lệnh, +0,31R mỗi lệnh, hệ số lợi nhuận 1,69, sụt giảm lớn nhất 10R. Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
     const card = (l, v, sub = "") => `<div class="stat"><div class="label">${l}</div><div class="v">${v}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
     $("#gStats").innerHTML = s.n ? [
       card("Số lệnh", s.n),

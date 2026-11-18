@@ -10,13 +10,16 @@ Quy tắc, chỉ dùng nến đã đóng của khung lớn (không nhìn trướ
   H4  xu hướng:   Tăng khi giá > EMA50 > EMA200, Giảm khi ngược lại, còn lại đứng ngoài.
   H1  xem xét:    Vùng MUA khi EMA20 > EMA50, giá còn trên EMA50 và đã hồi chạm EMA20 trong 3 nến H1
                   gần nhất (RSI < 70). Vùng BÁN ngược lại.
-  M15 điểm vào:   trong vùng H1 cùng chiều H4, nến M15 đóng cửa vượt lại EMA20 kèm RSI14 cắt 50
-                  hoặc MACD hist đổi dấu theo chiều lệnh.
-  Dừng lỗ sau đáy/đỉnh 6 nến H1 đã đóng thêm 0,2 ATR H1 (rủi ro tối thiểu 1 ATR M15).
+  M15 điểm vào:   chờ giá QUÉT THANH KHOẢN. Trong vùng H1 cùng chiều H4, nến M15 (hiện tại hoặc ngay trước)
+                  chọc thủng đáy thấp nhất của 20 nến M15 trước đó (nơi đặt dừng lỗ của nhiều người), rồi
+                  nến hiện tại đóng cửa quay lại trên mức đó và là nến tăng: MUA. BÁN ngược lại với đỉnh.
+  Dừng lỗ sau râu nến quét thêm 0,1 ATR M15, tối thiểu 15 giá; bỏ lệnh nếu dừng lỗ cần rộng hơn 20 giá
+  (15 và 20 giá tính ở mức vàng 3.850, tự co giãn theo giá).
   Giá đi được 1R (1:1) thì dời dừng lỗ về giá vào; chốt lời toàn bộ ở 4R (R:R 1:4).
 
-Cách quản lý lệnh này được chọn sau khi so 40 cách (dừng lỗ M15/H1, lọc D1, chốt 1:2, 1:3, 1:4,
-chốt một nửa, kéo dừng lỗ theo ATR) trên 2 năm nến M15 PAXG: lãi đều ở cả hai nửa dữ liệu, sụt giảm thấp nhất.
+Được chọn sau khi so khoảng 60 cách (dừng lỗ M15/H1/cố định, lọc D1, chốt 1:2 đến 1:5, chốt một nửa,
+kéo dừng lỗ, vào lệnh theo động lượng hoặc sau quét thanh khoản) trên 2 năm nến M15 PAXG/USDT:
+192 lệnh, +0,31R mỗi lệnh, hệ số lợi nhuận 1,69, lãi đều ở cả hai năm.
 """
 import argparse
 import json
@@ -38,7 +41,8 @@ OUT = Path(__file__).resolve().parent.parent / "web" / "data" / "gold.json"
 VN_TZ = timezone(timedelta(hours=7))
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"}
 BE_R, TP_R = 1.0, 4.0  # mốc dời dừng lỗ về hoà vốn, mục tiêu chốt lời (theo R)
-H1_SWING, SL_BUF_ATR_H1, MIN_RISK_ATR, MAX_RISK_ATR = 6, 0.2, 1.0, 10.0
+SWEEP_LOOK, SWEEP_RECENT, SL_BUF_ATR = 20, 1, 0.1   # đáy/đỉnh 20 nến M15; nến quét: hiện tại hoặc ngay trước
+REF_PRICE, MIN_RISK_USD, MAX_RISK_USD = 3850.0, 15.0, 20.0  # dừng lỗ 15–20 giá ở mức 3.850, co giãn theo giá
 CHART = {"m15": 400, "h1": 360, "h4": 300}
 OHLC = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
@@ -161,25 +165,45 @@ def closed_on(series, period, target_index):
     return s.reindex(target_index, method="ffill")
 
 
+def add_sweep(m15):
+    """Mức thanh khoản (đáy/đỉnh 20 nến trước) và râu nến quét, dùng cho tín hiệu và dừng lỗ."""
+    k = SWEEP_RECENT + 1
+    m15["liq_lo"] = m15["low"].shift(k).rolling(SWEEP_LOOK).min()
+    m15["liq_hi"] = m15["high"].shift(k).rolling(SWEEP_LOOK).max()
+    m15["wick_lo"] = m15["low"].rolling(k).min()
+    m15["wick_hi"] = m15["high"].rolling(k).max()
+    return m15
+
+
+def risk_of(side, row):
+    """Khoảng dừng lỗ (giá) và giới hạn 15–20 giá quy theo giá hiện tại."""
+    scale = row["close"] / REF_PRICE
+    raw = (row["close"] - row["wick_lo"] if side == "MUA" else row["wick_hi"] - row["close"]) + SL_BUF_ATR * row["atr"]
+    return max(raw, MIN_RISK_USD * scale), MAX_RISK_USD * scale
+
+
 def setups(m15, h4tr, zone):
-    c, e20 = m15["close"], m15["ema20"]
-    mom_up = ((m15["rsi"] > 50) & (m15["rsi"].shift() <= 50)) | ((m15["macdh"] > 0) & (m15["macdh"].shift() <= 0))
-    mom_dn = ((m15["rsi"] < 50) & (m15["rsi"].shift() >= 50)) | ((m15["macdh"] < 0) & (m15["macdh"].shift() >= 0))
-    buy = (h4tr == "Tăng") & (zone == "MUA") & (c > e20) & mom_up & (m15["rsi"] < 70)
-    sell = (h4tr == "Giảm") & (zone == "BÁN") & (c < e20) & mom_dn & (m15["rsi"] > 30)
-    return buy.fillna(False).to_numpy(), sell.fillna(False).to_numpy()
+    c, o = m15["close"], m15["open"]
+    buy = (h4tr == "Tăng") & (zone == "MUA") & (m15["wick_lo"] < m15["liq_lo"]) & (c > m15["liq_lo"]) & (c > o)
+    sell = (h4tr == "Giảm") & (zone == "BÁN") & (m15["wick_hi"] > m15["liq_hi"]) & (c < m15["liq_hi"]) & (c < o)
+    buy, sell = buy.fillna(False).to_numpy(copy=True), sell.fillna(False).to_numpy(copy=True)
+    # Bỏ tín hiệu cần dừng lỗ rộng hơn 20 giá
+    for arr, side in ((buy, "MUA"), (sell, "BÁN")):
+        for i in np.flatnonzero(arr):
+            r, mx = risk_of(side, m15.iloc[i])
+            if r > mx:
+                arr[i] = False
+    return buy, sell
 
 
 def plan(side, i, m15):
-    """Điểm vào, dừng lỗ, mốc hoà vốn (1:1) và chốt lời (1:4) cho tín hiệu ở nến M15 thứ i.
-    m15 cần các cột h1lo/h1hi/h1atr (đáy, đỉnh 6 nến H1 và ATR H1 của nến H1 đã đóng)."""
+    """Điểm vào, dừng lỗ, mốc hoà vốn (1:1) và chốt lời (1:4) cho tín hiệu ở nến M15 thứ i."""
     r = m15.iloc[i]
-    entry, a = float(r["close"]), float(r["atr"])
-    risk = (entry - r["h1lo"] + SL_BUF_ATR_H1 * r["h1atr"]) if side == "MUA" else (r["h1hi"] - entry + SL_BUF_ATR_H1 * r["h1atr"])
-    risk = float(min(max(risk, MIN_RISK_ATR * a), MAX_RISK_ATR * a)) if not math.isnan(risk) else MIN_RISK_ATR * a
+    entry, risk = float(r["close"]), float(risk_of(side, r)[0])
     d = 1 if side == "MUA" else -1
     return {"side": side, "entry": entry, "sl": entry - d * risk, "be": entry + d * BE_R * risk,
-            "tp": entry + d * TP_R * risk, "risk": risk}
+            "tp": entry + d * TP_R * risk, "risk": risk,
+            "liq": float(r["liq_lo"] if d == 1 else r["liq_hi"])}
 
 
 def backtest(m15, buy, sell, start=200):
@@ -206,7 +230,7 @@ def backtest(m15, buy, sell, start=200):
                 if opposite:
                     res = d * (cl[i] - pos["entry"]) / pos["risk"], "Tín hiệu ngược chiều", cl[i]
             if res:
-                trades.append({**{k: pos[k] for k in ("side", "entry", "be", "tp")}, "sl": pos["sl0"],
+                trades.append({**{k: pos[k] for k in ("side", "entry", "be", "tp", "liq")}, "sl": pos["sl0"],
                                "t_in": pos["t_in"], "t_out": t[i], "exit": float(res[2]),
                                "r": round(float(res[0]), 2), "reason": res[1]})
                 pos = None
@@ -253,6 +277,8 @@ def bars(df, n):
 def trade_out(x):
     o = {k: r2(x[k]) for k in ("entry", "sl", "be", "tp")}
     o.update(side=x["side"], t_in=iso(x["t_in"]))
+    if x.get("liq") is not None:
+        o["liq"] = r2(x["liq"])
     if "t_out" in x:
         o.update(t_out=iso(x["t_out"]), exit=r2(x["exit"]), r=x["r"], reason=x["reason"])
     return o
@@ -268,9 +294,7 @@ def build(h1_raw, m15_raw, meta):
     H1, H4, M15 = pd.Timedelta(hours=1), pd.Timedelta(hours=4), pd.Timedelta(minutes=15)
     m15 = add_ind(m15_raw)
     h1 = add_ind(h1_raw)
-    m15["h1lo"] = closed_on(h1["low"].rolling(H1_SWING).min(), H1, m15.index)
-    m15["h1hi"] = closed_on(h1["high"].rolling(H1_SWING).max(), H1, m15.index)
-    m15["h1atr"] = closed_on(h1["atr"], H1, m15.index)
+    m15 = add_sweep(m15)
     h4 = add_ind(h1_raw.resample("4h", origin="epoch").agg(OHLC).dropna())
     d1 = h1_raw.resample("1D").agg(OHLC).dropna()
     h4tr_all, zone_all = h4.apply(trend_of, axis=1), h1_zones(h1)
@@ -305,14 +329,16 @@ def build(h1_raw, m15_raw, meta):
     elif z1 != ("MUA" if t4 == "Tăng" else "BÁN"):
         status = f"H4 {t4.lower()}: chờ giá H1 hồi về EMA20 để vào vùng {'MUA' if t4 == 'Tăng' else 'BÁN'}."
     else:
-        status = f"H4 {t4.lower()}, H1 đang ở vùng {z1}: chờ nến M15 xác nhận để vào lệnh."
+        lv = lm["liq_lo"] if z1 == "MUA" else lm["liq_hi"]
+        status = (f"H4 {t4.lower()}, H1 đang ở vùng {z1}: chờ M15 quét {'đáy' if z1 == 'MUA' else 'đỉnh'} "
+                  f"{lv:.2f} rồi đóng cửa quay lại để vào lệnh.")
     s = stats(trades)
     return {
         "generated_at": datetime.now(VN_TZ).strftime("%Y-%m-%dT%H:%M"),
         "symbol": "XAUUSD", "demo": meta["source"] == "MÔ PHỎNG", **meta,
         "price": r2(last["close"]), "day_chg": r2(last["close"] / prev_day * 100 - 100),
         "rsi_m15": r2(lm["rsi"]), "rsi_h1": r2(h1["rsi"].iloc[i_h1]), "atr_m15": r2(lm["atr"]),
-        "tf": {"H4": t4, "H1": z1 or "Chưa có vùng", "M15": m15_state}, "status": status,
+        "liq": {"lo": r2(lm["liq_lo"]), "hi": r2(lm["liq_hi"])}, "tf": {"H4": t4, "H1": z1 or "Chưa có vùng", "M15": m15_state}, "status": status,
         "fresh": fresh, "open": open_pos, "stats": s, "rr": [BE_R, TP_R],
         "trades": [trade_out(x) for x in trades[-30:]][::-1],
         "m15": bars(m15, CHART["m15"]), "h1": bars(h1, CHART["h1"]), "h4": bars(h4, CHART["h4"]),
@@ -330,7 +356,7 @@ def telegram(data, prev):
     f = data["fresh"]
     if f and f["id"] not in sent:
         icon = "🟢" if f["side"] == "MUA" else "🔴"
-        msgs.append((f["id"], f"{icon} XAUUSD {f['side']} {f['entry']}\nDừng lỗ: {f['sl']}\nDời SL về giá vào khi tới (1:1): {f['be']}\n"
+        msgs.append((f["id"], f"{icon} XAUUSD {f['side']} {f['entry']} (sau khi quét thanh khoản {f.get('liq')})\nDừng lỗ: {f['sl']}\nDời SL về giá vào khi tới (1:1): {f['be']}\n"
                      f"Chốt lời (1:4): {f['tp']}\nH4 {data['tf']['H4']} · H1 vùng {data['tf']['H1']} · M15 xác nhận\n"
                      f"Nến M15 {f['t_in'].replace('T', ' ')} (giờ VN). Không phải khuyến nghị đầu tư."))
     for t in data["trades"][:3]:
