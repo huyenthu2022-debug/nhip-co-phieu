@@ -1,118 +1,64 @@
-"""Thử cách quản lý lệnh và vào lệnh để tăng cả tỷ lệ thắng lẫn R:R (đã có lọc RSI + giờ)."""
+"""So khớp tín hiệu realtime trong trình duyệt (web/gold.js) với engine Python trên cùng nến PAXG/USDT."""
+import json
+import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 import gold  # noqa: E402
 
-
-def prep(h1r, m15r):
-    m = gold.add_sweep(gold.add_ind(m15r))
-    h1 = gold.add_ind(h1r)
-    h4 = gold.add_ind(h1r.resample("4h", origin="epoch").agg(gold.OHLC).dropna())
-    h4tr = gold.closed_on(h4.apply(gold.trend_of, axis=1), pd.Timedelta(hours=4), m.index).fillna("Đi ngang")
-    zone = gold.closed_on(gold.h1_zones(h1), pd.Timedelta(hours=1), m.index).fillna("")
-    b, s = gold.setups(m, h4tr, zone)
-    return m, b, s
+ROOT = Path(__file__).resolve().parent.parent
 
 
-def sim(m, b, s, start, tp=3.0, be=1.0, pfrac=0.0, pat=0.0, trail=None, limit=0.0, wait=4, minr=None, opp_exit=True):
-    """tp/be/pat theo R. pfrac: phần chốt sớm tại pat (sau đó SL về giá vào). trail=(bắt đầu R, khoảng R).
-    limit: vào lệnh chờ tại giá đóng cửa lùi về phía râu quét limit*(đóng cửa − râu), chờ tối đa `wait` nến.
-    minr: SL tối thiểu (giá ở mức 3.850) khi vào lệnh chờ, mặc định giữ 15."""
-    H, L, C, W_LO, W_HI, A = (m[k].to_numpy() for k in ("high", "low", "close", "wick_lo", "wick_hi", "atr"))
-    out, pos, pend = [], None, None
-    for i in range(start, len(m)):
-        sig = 1 if b[i] else -1 if s[i] else 0
-        if pos:
-            d = pos["d"]
-            fav = d * ((H[i] if d > 0 else L[i]) - pos["e"]) / pos["r"]
-            adv_hit = (L[i] <= pos["sl"]) if d > 0 else (H[i] >= pos["sl"])
-            res = None
-            if adv_hit:
-                res = pos["real"] + pos["rem"] * d * (pos["sl"] - pos["e"]) / pos["r"]
-            elif fav >= tp:
-                res = pos["real"] + pos["rem"] * tp
-            else:
-                pos["mx"] = max(pos["mx"], fav)
-                if pfrac and not pos["pd"] and fav >= pat:
-                    pos["pd"] = True; pos["real"] += pfrac * pat; pos["rem"] -= pfrac
-                    pos["sl"] = pos["e"] if d * (pos["e"] - pos["sl"]) > 0 else pos["sl"]
-                if be and fav >= be and d * (pos["e"] - pos["sl"]) > 0:
-                    pos["sl"] = pos["e"]
-                if trail and pos["mx"] >= trail[0]:
-                    nsl = pos["e"] + d * (pos["mx"] - trail[1]) * pos["r"]
-                    if d * (nsl - pos["sl"]) > 0:
-                        pos["sl"] = nsl
-                if opp_exit and sig == -d:
-                    res = pos["real"] + pos["rem"] * d * (C[i] - pos["e"]) / pos["r"]
-            if res is not None:
-                out.append((m.index[pos["t"]], res)); pos = None
-                if not (opp_exit and sig):
-                    continue
-        if pend and not pos:   # lệnh chờ
-            d = pend["d"]
-            if i > pend["i"] + wait or sig == -d:
-                pend = None
-            elif (L[i] <= pend["e"]) if d > 0 else (H[i] >= pend["e"]):
-                pos = {**pend, "t": i, "real": 0.0, "rem": 1.0, "pd": False, "mx": 0.0}
-                pend = None
-                # cùng nến chạm SL: tính thua (thận trọng)
-                if (L[i] <= pos["sl"]) if d > 0 else (H[i] >= pos["sl"]):
-                    out.append((m.index[i], -1.0)); pos = None
-                continue
-        if not pos and sig:
-            d = sig
-            if limit:
-                wick = W_LO[i] if d > 0 else W_HI[i]
-                e = C[i] - limit * (C[i] - wick)
-                sc = C[i] / gold.REF_PRICE
-                raw = d * (e - wick) + gold.SL_BUF_ATR * A[i]
-                r = max(raw, (minr if minr is not None else gold.MIN_RISK_USD) * sc)
-                pend = {"d": d, "e": e, "r": r, "sl": e - d * r, "i": i}
-            else:
-                p = gold.plan("MUA" if d > 0 else "BÁN", i, m)
-                pos = {"d": d, "e": p["entry"], "r": p["risk"], "sl": p["sl"], "t": i, "real": 0.0, "rem": 1.0, "pd": False, "mx": 0.0}
-    return pd.Series([x[1] for x in out], index=[x[0] for x in out], dtype=float)
+def kl(iv, n):
+    now = pd.Timestamp.now(tz="UTC").value // 10**6
+    k = [x for x in gold._get(f"https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval={iv}&limit={n}") if x[6] < now]
+    js = {"t": [x[0] / 1000 for x in k], **{c: [float(x[j]) for x in k] for c, j in (("o", 1), ("h", 2), ("l", 3), ("c", 4))}}
+    df = pd.DataFrame({"open": js["o"], "high": js["h"], "low": js["l"], "close": js["c"], "volume": 0.0},
+                      index=pd.to_datetime(js["t"], unit="s", utc=True))
+    return js, df
 
 
-def line(name, r, g):
-    if len(r) < 5:
-        print(f"{name:44s} ít lệnh"); return
-    w, l = r[r > 0], r[r < 0]
-    h = len(r) // 2
-    eq = r.cumsum().to_numpy(); dd = (np.maximum.accumulate(np.r_[0, eq])[1:] - eq).max()
-    pf = w.sum() / max(-l.sum(), 1e-9)
-    rr = w.mean() / max(-l.mean(), 1e-9) if len(w) and len(l) else float("nan")
-    print(f"{name:44s} n={len(r):3d} thắng {len(w)/len(r)*100:4.1f}% hoà {(r == 0).mean()*100:4.1f}% thua {len(l)/len(r)*100:4.1f}% "
-          f"| lãi TB/lỗ TB {rr:4.2f} | TB {r.mean():+.2f}R tổng {r.sum():+5.1f}R pf {pf:.2f} dd {dd:4.1f} | nửa {r.iloc[:h].sum():+.0f}/{r.iloc[h:].sum():+.0f} "
-          f"| GC {len(g)}L {g.sum():+.1f}R thắng {(g > 0).mean()*100:.0f}%")
+(j15, m), (j1, h1), (j4, h4) = kl("15m", 1000), kl("1h", 500), kl("4h", 1000)
+Path("/tmp/k.json").write_text(json.dumps({"m15": j15, "h1": j1, "h4": j4}))
+js = json.loads(subprocess.run(["node", str(ROOT / "engine/rt_check.js"), str(ROOT / "web/gold.js"), "/tmp/k.json"],
+                               capture_output=True, text=True, check=True).stdout)
 
+m = gold.add_sweep(gold.add_ind(m))
+h1i, h4i = gold.add_ind(h1), gold.add_ind(h4)
+h4tr = gold.closed_on(h4i.apply(gold.trend_of, axis=1), pd.Timedelta(hours=4), m.index).fillna("Đi ngang")
+zone = gold.closed_on(gold.h1_zones(h1i), pd.Timedelta(hours=1), m.index).fillna("")
+buy, sell = gold.setups(m, h4tr, zone)
+trades, pos, pend = gold.backtest(m, buy, sell, start=200)
+py_sigs = [int(t.timestamp()) for t, b_, s_ in zip(m.index, buy, sell) if b_ or s_]
+py_tr = [int(x["t_sig"].timestamp()) for x in trades]
+print("Tín hiệu  Python:", len(py_sigs), " JS:", len(js["sigs"]), " khớp:", py_sigs == [int(x) for x in js["sigs"]])
+print("Lệnh      Python:", len(py_tr), " JS:", len(js["trades"]), " khớp:", py_tr == [int(x) for x in js["trades"]])
+print("Lệnh mở   Python:", pos and (pos["side"], gold.iso(pos["t_in"]), round(pos["sl"], 2)), " JS:", js["open"])
+print("Lệnh chờ  Python:", pend and (pend["side"], gold.iso(pend["t_sig"]), round(pend["entry"], 2)), " JS:", js["pending"])
+print("Khung JS:", js["tf"], js["status"], "RSI", js["rsi_m15"], js["rsi_h1"], "nến", js["bar"])
+print("Python RSI cuối:", round(m["rsi"].iloc[-1], 2), round(h1i["rsi"].iloc[-1], 2))
+print("Tín hiệu gần nhất (giờ VN):", [gold.iso(pd.Timestamp(t, unit="s", tz="UTC")) for t in py_sigs[-6:]])
+print("Khác nhau:", sorted(set(py_sigs) ^ {int(x) for x in js["sigs"]})[:10])
 
+gold_stats = None
 spot, _ = gold.spot_price()
-P = prep(gold.binance("1h", 20000), gold.binance("15m", 70000))
-gh1, _ = gold.shift_to_spot(gold.clean(gold.yahoo("1h", "730d")), spot)
-gm15, _ = gold.shift_to_spot(gold.clean(gold.yahoo("15m", "60d")), spot)
-G = prep(gh1, gm15)
-V = {
-    "hiện tại": {},
-    "chờ 40%, 3R": dict(limit=.4), "chờ 50%, 3R": dict(limit=.5), "chờ 60%, 3R": dict(limit=.6),
-    "chờ 50% tối đa 2 nến, 3R": dict(limit=.5, wait=2), "chờ 50% tối đa 8 nến, 3R": dict(limit=.5, wait=8),
-    "chờ 50%, 4R": dict(limit=.5, tp=4),
-    "kéo SL 1.5R từ 2.5R, tối đa 6R": dict(tp=6, trail=(2.5, 1.5)),
-    "chờ 50% + kéo SL 1.5R từ 2.5R, tối đa 6R": dict(limit=.5, tp=6, trail=(2.5, 1.5)),
-    "chờ 50% + kéo SL 1R từ 2R, tối đa 6R": dict(limit=.5, tp=6, trail=(2.0, 1.0)),
-    "chờ 50% + kéo SL 1.5R từ 3R, tối đa 8R": dict(limit=.5, tp=8, trail=(3.0, 1.5)),
-    "chờ 50% + kéo SL 2R từ 3R, tối đa 8R": dict(limit=.5, tp=8, trail=(3.0, 2.0)),
-    "chờ 40% + kéo SL 1.5R từ 2.5R, tối đa 6R": dict(limit=.4, tp=6, trail=(2.5, 1.5)),
-    "chờ 60% + kéo SL 1.5R từ 2.5R, tối đa 6R": dict(limit=.6, tp=6, trail=(2.5, 1.5)),
-}
-for k, kw in V.items():
-    r = sim(*P, 2000, **kw)
-    line(k, r, sim(*G, 200, **kw))
-    q = r.groupby(r.index.to_period("Q").astype(str)).sum()
-    w = r[r > 0]
-    print("      theo quý:", " ".join(f"{v:+.0f}" for v in q.values), f"({(q > 0).sum()}/{len(q)}) | lệnh thắng TB {w.mean():.2f}R | đạt ≥3R: {(r >= 3).mean()*100:.0f}%")
+for tag, h1r, m15r, start in (("PAXG 2 năm", gold.binance("1h", 20000), gold.binance("15m", 70000), 2000),
+                               ("GC=F 60 ngày", gold.shift_to_spot(gold.clean(gold.yahoo("1h", "730d")), spot)[0],
+                                gold.shift_to_spot(gold.clean(gold.yahoo("15m", "60d")), spot)[0], 200)):
+    mm = gold.add_sweep(gold.add_ind(m15r))
+    hh = gold.add_ind(h1r)
+    h44 = gold.add_ind(h1r.resample("4h", origin="epoch").agg(gold.OHLC).dropna())
+    t4s = gold.closed_on(h44.apply(gold.trend_of, axis=1), pd.Timedelta(hours=4), mm.index).fillna("Đi ngang")
+    zs = gold.closed_on(gold.h1_zones(hh), pd.Timedelta(hours=1), mm.index).fillna("")
+    bb, ss = gold.setups(mm, t4s, zs)
+    tr, _, _ = gold.backtest(mm, bb, ss, start)
+    r = pd.Series([x["r"] for x in tr])
+    print(tag, gold.stats(tr), "| lãi TB/lỗ TB", round(r[r > 0].mean() / -r[r < 0].mean(), 2), "| không thua", round((r >= 0).mean() * 100, 1), "%")
+    print("   lý do:", pd.Series([x["reason"] for x in tr]).value_counts().to_dict())
+    print("   gần nhất:", [(gold.iso(x["t_sig"]), gold.iso(x["t_in"]), x["side"], x["reason"], x["r"]) for x in tr[-5:]])
+h1, m15, meta = gold.fetch_real()
+d = gold.build(h1, m15, meta)
+print("build OK:", d["status"], "| chờ:", d["pending"], "| mở:", d["open"], "| mới:", d["fresh"])

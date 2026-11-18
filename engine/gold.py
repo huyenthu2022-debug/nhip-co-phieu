@@ -42,7 +42,10 @@ from indicators import atr, ema, macd_hist, rsi  # noqa: E402
 OUT = Path(__file__).resolve().parent.parent / "web" / "data" / "gold.json"
 VN_TZ = timezone(timedelta(hours=7))
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"}
-BE_R, TP_R = 1.0, 3.0  # mốc dời dừng lỗ về hoà vốn, mục tiêu chốt lời (theo R)
+BE_R = 1.0                     # tới 1R: dời dừng lỗ về giá vào
+TRAIL_START, TRAIL_GAP = 3.0, 1.5  # tới 3R: kéo dừng lỗ theo giá, luôn cách đỉnh lãi 1,5R
+TP_R = 8.0                     # chốt toàn bộ khi đạt tối đa 8R
+ENTRY_PULLBACK, ENTRY_WAIT = 0.5, 4  # lệnh chờ tại giá hồi 50% về râu nến quét, hiệu lực 4 nến M15
 SWEEP_LOOK, SWEEP_RECENT, SL_BUF_ATR = 20, 1, 0.1   # đáy/đỉnh 20 nến M15; nến quét: hiện tại hoặc ngay trước
 REF_PRICE, MIN_RISK_USD, MAX_RISK_USD = 3850.0, 15.0, 20.0
 RSI_MAX = 50                       # lọc chất lượng: MUA khi RSI M15 <= 50 (giá vừa hồi thật), BÁN khi >= 50
@@ -204,49 +207,72 @@ def setups(m15, h4tr, zone):
 
 
 def plan(side, i, m15):
-    """Điểm vào, dừng lỗ, mốc hoà vốn (1:1) và chốt lời (1:3) cho tín hiệu ở nến M15 thứ i."""
+    """Lệnh chờ cho tín hiệu ở nến M15 thứ i: giá vào hồi 50% từ giá đóng cửa về râu nến quét,
+    dừng lỗ sau râu (tối thiểu 15 giá), hoà vốn 1:1, bắt đầu kéo SL ở 1:3, chốt tối đa 1:8."""
     r = m15.iloc[i]
-    entry, risk = float(r["close"]), float(risk_of(side, r)[0])
     d = 1 if side == "MUA" else -1
+    close, wick = float(r["close"]), float(r["wick_lo"] if d == 1 else r["wick_hi"])
+    entry = close - ENTRY_PULLBACK * (close - wick)
+    risk = float(max(d * (entry - wick) + SL_BUF_ATR * r["atr"], MIN_RISK_USD * close / REF_PRICE))
     return {"side": side, "entry": entry, "sl": entry - d * risk, "be": entry + d * BE_R * risk,
-            "tp": entry + d * TP_R * risk, "risk": risk,
-            "liq": float(r["liq_lo"] if d == 1 else r["liq_hi"])}
+            "trail": entry + d * TRAIL_START * risk, "tp": entry + d * TP_R * risk, "risk": risk,
+            "liq": float(r["liq_lo"] if d == 1 else r["liq_hi"]), "signal": close}
 
 
 def backtest(m15, buy, sell, start=200):
-    """Một lệnh mỗi lúc. Cùng nến chạm cả dừng lỗ và mục tiêu thì tính dừng lỗ trước (thận trọng).
-    Kết quả theo R: dừng lỗ = -1R; đã qua 1:1 rồi quay về giá vào = 0R; chạm mục tiêu = +3R."""
+    """Một lệnh mỗi lúc. Tín hiệu đặt lệnh chờ; khớp khi giá hồi về, huỷ sau ENTRY_WAIT nến hoặc khi có tín hiệu ngược.
+    Cùng nến chạm cả dừng lỗ và mục tiêu thì tính dừng lỗ trước; nến khớp lệnh mà chạm luôn dừng lỗ thì tính thua.
+    Kết quả theo R: dừng lỗ = -1R; về giá vào = 0R; dừng lỗ đã kéo theo lãi = +R tương ứng; đạt tối đa = +8R."""
     hi, lo, cl = (m15[k].to_numpy() for k in ("high", "low", "close"))
     t = m15.index
-    trades, pos = [], None
+    trades, pos, pend = [], None, None
+
+    def close_pos(i, r, reason, px):
+        trades.append({**{k: pos[k] for k in ("side", "entry", "be", "trail", "tp", "liq", "t_sig")}, "sl": pos["sl0"],
+                       "t_in": pos["t_in"], "t_out": t[i], "exit": float(px), "r": round(float(r), 2), "reason": reason})
+
     for i in range(start, len(m15)):
+        sig = 1 if buy[i] else -1 if sell[i] else 0
         if pos is not None:
-            d = 1 if pos["side"] == "MUA" else -1
+            d = pos["d"]
+            fav = d * ((hi[i] if d == 1 else lo[i]) - pos["entry"]) / pos["risk"]
             hit_sl = (lo[i] <= pos["sl"]) if d == 1 else (hi[i] >= pos["sl"])
-            hit_be = (hi[i] >= pos["be"]) if d == 1 else (lo[i] <= pos["be"])
-            hit_tp = (hi[i] >= pos["tp"]) if d == 1 else (lo[i] <= pos["tp"])
-            opposite = sell[i] if d == 1 else buy[i]
             res = None
             if hit_sl:
-                res = (0.0 if pos["t1"] else -1.0), ("Hoà vốn" if pos["t1"] else "Dừng lỗ"), pos["sl"]
-            elif hit_tp:
-                res = TP_R, f"Đạt mục tiêu 1:{TP_R:g}", pos["tp"]
+                r = d * (pos["sl"] - pos["entry"]) / pos["risk"]
+                res = r, ("Dừng lỗ" if r < 0 else "Hoà vốn" if r == 0 else "Chạm SL đã kéo theo lãi"), pos["sl"]
+            elif fav >= TP_R:
+                res = TP_R, f"Đạt tối đa 1:{TP_R:g}", pos["tp"]
             else:
-                if hit_be and not pos["t1"]:
-                    pos["t1"], pos["sl"] = True, pos["entry"]
-                if opposite:
+                pos["mx"] = max(pos["mx"], fav)
+                if fav >= BE_R and d * (pos["entry"] - pos["sl"]) > 0:
+                    pos["sl"], pos["t1"] = pos["entry"], True
+                if pos["mx"] >= TRAIL_START:
+                    nsl = pos["entry"] + d * (pos["mx"] - TRAIL_GAP) * pos["risk"]
+                    if d * (nsl - pos["sl"]) > 0:
+                        pos["sl"] = nsl
+                if sig == -d:
                     res = d * (cl[i] - pos["entry"]) / pos["risk"], "Tín hiệu ngược chiều", cl[i]
             if res:
-                trades.append({**{k: pos[k] for k in ("side", "entry", "be", "tp", "liq")}, "sl": pos["sl0"],
-                               "t_in": pos["t_in"], "t_out": t[i], "exit": float(res[2]),
-                               "r": round(float(res[0]), 2), "reason": res[1]})
+                close_pos(i, *res)
                 pos = None
-                if not opposite:
+                if not sig:
                     continue
-        if pos is None and (buy[i] or sell[i]):
-            p = plan("MUA" if buy[i] else "BÁN", i, m15)
-            pos = {**p, "sl0": p["sl"], "t_in": t[i], "t1": False}
-    return trades, pos
+        if pend is not None and pos is None:
+            d = pend["d"]
+            if i > pend["i"] + ENTRY_WAIT or sig == -d:
+                pend = None
+            elif (lo[i] <= pend["entry"]) if d == 1 else (hi[i] >= pend["entry"]):
+                pos = {**pend, "t_in": t[i], "mx": 0.0, "t1": False}
+                pend = None
+                if (lo[i] <= pos["sl"]) if d == 1 else (hi[i] >= pos["sl"]):
+                    close_pos(i, -1.0, "Dừng lỗ", pos["sl"])
+                    pos = None
+                continue
+        if pos is None and sig:
+            p = plan("MUA" if sig == 1 else "BÁN", i, m15)
+            pend = {**p, "d": sig, "i": i, "sl0": p["sl"], "t_sig": t[i]}
+    return trades, pos, pend
 
 
 def stats(trades):
@@ -282,8 +308,12 @@ def bars(df, n):
 
 
 def trade_out(x):
-    o = {k: r2(x[k]) for k in ("entry", "sl", "be", "tp")}
+    o = {k: r2(x[k]) for k in ("entry", "sl", "be", "tp") if k in x}
+    if x.get("trail") is not None:
+        o["trail"] = r2(x["trail"])
     o.update(side=x["side"], t_in=iso(x["t_in"]))
+    if x.get("t_sig") is not None:
+        o["t_sig"] = iso(x["t_sig"])
     if x.get("liq") is not None:
         o["liq"] = r2(x["liq"])
     if "t_out" in x:
@@ -308,23 +338,27 @@ def build(h1_raw, m15_raw, meta):
     h4tr = closed_on(h4tr_all, H4, m15.index).fillna("Đi ngang")
     zone = closed_on(zone_all, H1, m15.index).fillna("")
     buy, sell = setups(m15, h4tr, zone)
-    trades, pos = backtest(m15, buy, sell)
+    trades, pos, pend = backtest(m15, buy, sell)
 
     last = m15.iloc[-1]
     prev_day = d1["close"].iloc[-2] if len(d1) > 1 else last["close"]
     open_pos = None
     if pos:
-        d = 1 if pos["side"] == "MUA" else -1
-        open_pos = {**trade_out({**pos, "sl": pos["sl0"]}), "be_hit": pos["t1"], "sl_now": r2(pos["sl"]),
+        d = pos["d"]
+        open_pos = {**trade_out({**pos, "sl": pos["sl0"]}), "be_hit": bool(pos["t1"]), "trailing": bool(pos["mx"] >= TRAIL_START),
+                    "sl_now": r2(pos["sl"]), "id": f"{pos['side']}-{int(pos['t_sig'].timestamp())}",
                     "r_now": round(float(d * (last["close"] - pos["entry"]) / pos["risk"]), 2)}
-    # Tín hiệu mới: trên 4 nến M15 đã đóng gần nhất (bù khi lịch chạy của GitHub bị trễ)
+    pending = None
+    if pend:
+        pending = {**trade_out({**pend, "t_in": pend["t_sig"]}), "id": f"{pend['side']}-{int(pend['t_sig'].timestamp())}",
+                   "until": iso(pend["t_sig"] + (ENTRY_WAIT + 1) * M15)}
+    # Tín hiệu mới (lệnh chờ vừa đặt hoặc vừa khớp) trên 4 nến M15 đã đóng gần nhất
     i_m = last_closed(m15, M15, now)
-    taken = {x["t_in"] for x in trades} | ({pos["t_in"]} if pos else set())  # chỉ tín hiệu thực sự mở lệnh
+    recent = m15.index[max(i_m - 3, 0)]
     fresh = None
-    for i in range(i_m, max(i_m - 4, 0), -1):
-        if (buy[i] or sell[i]) and m15.index[i] in taken:
-            p = plan("MUA" if buy[i] else "BÁN", i, m15)
-            fresh = {**trade_out({**p, "t_in": m15.index[i]}), "id": f"{p['side']}-{int(m15.index[i].timestamp())}"}
+    for x in (pending, open_pos):
+        if x and pd.Timestamp(x["t_sig"] + ":00+07:00") >= recent:
+            fresh = x
             break
 
     i_h4, i_h1 = last_closed(h4, H4, now), last_closed(h1, H1, now)
@@ -347,7 +381,8 @@ def build(h1_raw, m15_raw, meta):
         "price": r2(last["close"]), "day_chg": r2(last["close"] / prev_day * 100 - 100),
         "rsi_m15": r2(lm["rsi"]), "rsi_h1": r2(h1["rsi"].iloc[i_h1]), "atr_m15": r2(lm["atr"]),
         "liq": {"lo": r2(lm["liq_lo"]), "hi": r2(lm["liq_hi"])}, "tf": {"H4": t4, "H1": z1 or "Chưa có vùng", "M15": m15_state}, "status": status,
-        "fresh": fresh, "open": open_pos, "stats": s, "rr": [BE_R, TP_R],
+        "fresh": fresh, "open": open_pos, "pending": pending, "stats": s,
+        "rr": {"be": BE_R, "trail": TRAIL_START, "gap": TRAIL_GAP, "tp": TP_R, "pullback": ENTRY_PULLBACK, "wait": ENTRY_WAIT},
         "trades": [trade_out(x) for x in trades[-30:]][::-1],
         "m15": bars(m15, CHART["m15"]), "h1": bars(h1, CHART["h1"]), "h4": bars(h4, CHART["h4"]),
     }
@@ -364,9 +399,10 @@ def telegram(data, prev):
     f = data["fresh"]
     if f and f["id"] not in sent:
         icon = "🟢" if f["side"] == "MUA" else "🔴"
-        msgs.append((f["id"], f"{icon} XAUUSD {f['side']} {f['entry']} (sau khi quét thanh khoản {f.get('liq')})\nDừng lỗ: {f['sl']}\nDời SL về giá vào khi tới (1:1): {f['be']}\n"
-                     f"Chốt lời (1:{TP_R:g}): {f['tp']}\nH4 {data['tf']['H4']} · H1 vùng {data['tf']['H1']} · M15 xác nhận\n"
-                     f"Nến M15 {f['t_in'].replace('T', ' ')} (giờ VN). Không phải khuyến nghị đầu tư."))
+        msgs.append((f["id"], f"{icon} XAUUSD đặt lệnh chờ {f['side']} LIMIT {f['entry']} (sau khi quét thanh khoản {f.get('liq')})\n"
+                     f"Dừng lỗ: {f['sl']}\nTới {f['be']} (1:1): dời SL về giá vào\nTới {f.get('trail')} (1:{TRAIL_START:g}): kéo SL cách {TRAIL_GAP:g}R\n"
+                     f"Chốt tối đa (1:{TP_R:g}): {f['tp']}\nHiệu lực đến {f.get('until', '').replace('T', ' ')}\n"
+                     f"H4 {data['tf']['H4']} · H1 vùng {data['tf']['H1']} · M15 xác nhận. Không phải khuyến nghị đầu tư."))
     for t in data["trades"][:3]:
         key = f"x-{t['side']}-{t['t_in']}"
         if key not in sent and (prev or {}).get("open") and prev["open"]["t_in"] == t["t_in"]:

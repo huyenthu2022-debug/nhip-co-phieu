@@ -76,12 +76,17 @@
   }
   function checkAlerts() {
     if (!G || G.demo) return;
-    if (G.fresh) once("sig:" + G.fresh.id, `Tín hiệu ${G.fresh.side} tại ${fmt(G.fresh.entry)}`, `Dừng lỗ ${fmt(G.fresh.sl)} · hoà vốn khi tới ${fmt(G.fresh.be)} · chốt lời ${fmt(G.fresh.tp)}`);
+    const pd = G.pending;
+    if (pd) once("pend:" + pd.id, `Đặt lệnh chờ ${pd.side} LIMIT ${fmt(pd.entry)}`, `Dừng lỗ ${fmt(pd.sl)} · hoà vốn khi tới ${fmt(pd.be)} · kéo SL từ ${fmt(pd.trail)} · tối đa ${fmt(pd.tp)} · hiệu lực đến ${pd.until.slice(11)}`);
     const o = G.open;
-    if (!o || live == null) return;
-    const d = o.side === "MUA" ? 1 : -1, id = o.side + o.t_in, past = p => d * (live - p) >= 0;
-    if (d * (live - o.sl_now) <= 0) once(id + ":sl", `${o.be_hit ? "Về giá vào (hoà vốn)" : "Chạm dừng lỗ"} ${fmt(o.sl_now)}`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
-    else if (past(o.tp)) once(id + ":tp", `Đạt mục tiêu ${fmt(o.tp)} (1:3), chốt lời`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
+    if (!o) return;
+    const id = o.id || o.side + o.t_in;
+    once("fill:" + id, `Lệnh chờ ${o.side} đã khớp tại ${fmt(o.entry)}`, `Dừng lỗ ${fmt(o.sl_now)} · tới ${fmt(o.be)} dời SL về giá vào`);
+    if (live == null) return;
+    const d = o.side === "MUA" ? 1 : -1, past = p => d * (live - p) >= 0;
+    if (d * (live - o.sl_now) <= 0) once(id + ":sl" + o.sl_now, `${o.trailing ? "Chạm SL đã kéo theo lãi" : o.be_hit ? "Về giá vào (hoà vốn)" : "Chạm dừng lỗ"} ${fmt(o.sl_now)}`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
+    else if (past(o.tp)) once(id + ":tp", `Đạt tối đa ${fmt(o.tp)} (1:8), chốt lời`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
+    else if (past(o.trail)) once(id + ":trail", `Đạt 1:3 tại ${fmt(o.trail)}, bắt đầu kéo dừng lỗ cách 1,5R`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
     else if (!o.be_hit && past(o.be)) once(id + ":be", `Đạt 1:1 tại ${fmt(o.be)}, dời dừng lỗ về giá vào`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
   }
   $("#goldNotify").addEventListener("click", async () => {
@@ -91,7 +96,7 @@
 
   /* ---------- Tín hiệu realtime: tính lại 3 khung ngay trong trình duyệt khi mỗi nến M15 đóng ----------
      Cùng quy tắc với engine/gold.py, trên nến PAXG/USDT (Binance, cập nhật tức thì) dời theo giá XAU giao ngay. */
-  const RR = { BE: 1, TP: 3 }, SWEEP = 20, BUF = 0.1, REF = 3850, MIN_R = 15, MAX_R = 20, RSI_MAX = 50, SKIP_H = [21, 22, 23, 0, 1, 2];
+  const RR = { BE: 1, TRAIL: 3, GAP: 1.5, TP: 8, PULL: 0.5, WAIT: 4 }, SWEEP = 20, BUF = 0.1, REF = 3850, MIN_R = 15, MAX_R = 20, RSI_MAX = 50, SKIP_H = [21, 22, 23, 0, 1, 2];
   const hourVN = t => new Date((t + 7 * 3600) * 1000).getUTCHours();
   const KL = "https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval=";
   let RT = null, rtTimer;
@@ -144,28 +149,48 @@
       if (!side) continue;
       const risk = Math.max(raw + BUF * atr[i], MIN_R * sc);
       if (risk > MAX_R * sc) continue;
-      const d = side === "MUA" ? 1 : -1;
-      sig[i] = { side, entry: c, sl: c - d * risk, be: c + d * RR.BE * risk, tp: c + d * RR.TP * risk, risk, liq: d > 0 ? liqLo[i] : liqHi[i], t: m.t[i] };
+      // Lệnh chờ: giá vào hồi 50% từ giá đóng cửa về râu nến quét, dừng lỗ sau râu (tối thiểu 15 giá)
+      const d = side === "MUA" ? 1 : -1, wick = d > 0 ? wLo[i] : wHi[i], e = c - RR.PULL * (c - wick);
+      const rk = Math.max(d * (e - wick) + BUF * atr[i], MIN_R * sc);
+      sig[i] = { side, d, entry: e, sl: e - d * rk, be: e + d * RR.BE * rk, trail: e + d * RR.TRAIL * rk, tp: e + d * RR.TP * rk, risk: rk, liq: d > 0 ? liqLo[i] : liqHi[i], t: m.t[i], i };
     }
-    // Quản lý lệnh y như backtest của engine: SL trước, rồi mục tiêu, tới 1:1 dời SL về giá vào, tín hiệu ngược thì đóng
-    const trades = []; let pos = null;
+    // Quản lý lệnh y như backtest của engine: lệnh chờ khớp khi giá hồi về (huỷ sau 4 nến hoặc khi có tín hiệu ngược),
+    // SL trước, rồi mức tối đa 1:8; tới 1:1 dời SL về giá vào; từ 1:3 kéo SL cách đỉnh lãi 1,5R; tín hiệu ngược thì đóng.
+    const trades = []; let pos = null, pend = null;
     for (let i = Math.min(200, n - 1); i < n; i++) {
+      const sg = sig[i] ? sig[i].d : 0;
       if (pos) {
-        const d = pos.side === "MUA" ? 1 : -1, hi = m.h[i], lo = m.l[i];
-        const hitSl = d > 0 ? lo <= pos.slNow : hi >= pos.slNow, hitTp = d > 0 ? hi >= pos.tp : lo <= pos.tp, hitBe = d > 0 ? hi >= pos.be : lo <= pos.be;
-        const opp = sig[i] && sig[i].side !== pos.side;
+        const d = pos.d, fav = d * ((d > 0 ? m.h[i] : m.l[i]) - pos.entry) / pos.risk;
+        const hitSl = d > 0 ? m.l[i] <= pos.slNow : m.h[i] >= pos.slNow;
         let res = null;
-        if (hitSl) res = [pos.t1 ? 0 : -1];
-        else if (hitTp) res = [RR.TP];
-        else { if (hitBe && !pos.t1) { pos.t1 = true; pos.slNow = pos.entry; } if (opp) res = [d * (m.c[i] - pos.entry) / pos.risk]; }
-        if (res) { trades.push(pos.t); pos = null; if (!opp) continue; }
+        if (hitSl) res = [d * (pos.slNow - pos.entry) / pos.risk];
+        else if (fav >= RR.TP) res = [RR.TP];
+        else {
+          pos.mx = Math.max(pos.mx, fav);
+          if (fav >= RR.BE && d * (pos.entry - pos.slNow) > 0) { pos.slNow = pos.entry; pos.t1 = true; }
+          if (pos.mx >= RR.TRAIL) { const nsl = pos.entry + d * (pos.mx - RR.GAP) * pos.risk; if (d * (nsl - pos.slNow) > 0) pos.slNow = nsl; }
+          if (sg === -d) res = [d * (m.c[i] - pos.entry) / pos.risk];
+        }
+        if (res) { trades.push(pos.t); pos = null; if (!sg) continue; }
       }
-      if (!pos && sig[i]) pos = { ...sig[i], slNow: sig[i].sl, t1: false };
+      if (pend && !pos) {
+        const d = pend.d;
+        if (i > pend.i + RR.WAIT || sg === -d) pend = null;
+        else if (d > 0 ? m.l[i] <= pend.entry : m.h[i] >= pend.entry) {
+          pos = { ...pend, tIn: m.t[i], slNow: pend.sl, t1: false, mx: 0 };
+          pend = null;
+          if (d > 0 ? m.l[i] <= pos.sl : m.h[i] >= pos.sl) { trades.push(pos.t); pos = null; }
+          continue;
+        }
+      }
+      if (!pos && sg) pend = sig[i];
     }
-    const out = s => ({ side: s.side, entry: r2j(s.entry), sl: r2j(s.sl), be: r2j(s.be), tp: r2j(s.tp), liq: r2j(s.liq), t_in: isoVN(s.t) });
-    const last = n - 1, taken = new Set([...trades, ...(pos ? [pos.t] : [])]);
-    let fresh = null;
-    for (let i = last; i > last - 4 && i >= 0; i--) if (sig[i] && taken.has(m.t[i])) { fresh = { ...out(sig[i]), id: `${sig[i].side}-${m.t[i]}` }; break; }
+    const out = s => ({ side: s.side, entry: r2j(s.entry), sl: r2j(s.sl), be: r2j(s.be), trail: r2j(s.trail), tp: r2j(s.tp), liq: r2j(s.liq),
+      t_sig: isoVN(s.t), t_in: isoVN(s.tIn ?? s.t), id: `${s.side}-${s.t}` });
+    const last = n - 1;
+    const pending = pend ? { ...out(pend), until: isoVN(pend.t + (RR.WAIT + 1) * 900) } : null;
+    const open = pos ? { ...out(pos), be_hit: pos.t1, trailing: pos.mx >= RR.TRAIL, sl_now: r2j(pos.slNow) } : null;
+    const fresh = [pending, open].find(x => x && Date.parse(x.t_sig + ":00Z") / 1000 - 7 * 3600 >= m.t[Math.max(last - 3, 0)]) || null;
     const t4 = tr4[h4.c.length - 1], z1 = zone[h1.c.length - 1];
     const m15 = m.c[last] > m20[last] && m20[last] > m50[last] ? "Tăng" : m.c[last] < m20[last] && m20[last] < m50[last] ? "Giảm" : "Đi ngang";
     let status;
@@ -173,17 +198,16 @@
     else if (z1 !== (t4 === "Tăng" ? "MUA" : "BÁN")) status = `H4 ${t4.toLowerCase()}: chờ giá H1 hồi về EMA20 để vào vùng ${t4 === "Tăng" ? "MUA" : "BÁN"}.`;
     else status = `${SKIP_H.includes(hourVN(Date.now() / 1000)) ? "Ngoài giờ vào lệnh (21h–3h giờ VN). " : ""}H4 ${t4.toLowerCase()}, H1 đang ở vùng ${z1}: chờ M15 quét ${z1 === "MUA" ? "đáy" : "đỉnh"} ${(z1 === "MUA" ? liqLo[last] : liqHi[last]).toFixed(2)} rồi đóng cửa quay lại để vào lệnh.`;
     return {
-      tf: { H4: t4, H1: z1 || "Chưa có vùng", M15: m15 }, status, fresh,
-      open: pos ? { ...out(pos), be_hit: pos.t1, sl_now: r2j(pos.slNow) } : null,
+      tf: { H4: t4, H1: z1 || "Chưa có vùng", M15: m15 }, status, fresh, open, pending,
       rsi_m15: r2j(rsm[last]), rsi_h1: r2j(rs1[h1.c.length - 1]), bar: isoVN(m.t[last] + 900),
       sigs: sig.filter(Boolean).map(x => x.t), trades,
     };
   }
   function applyRT() {
     if (!RT || !G || G.demo) return false;
-    const before = JSON.stringify([G.tf, G.status, G.fresh, G.open]);
-    Object.assign(G, { tf: RT.tf, status: RT.status, fresh: RT.fresh, open: RT.open, rsi_m15: RT.rsi_m15, rsi_h1: RT.rsi_h1, rt_bar: RT.bar });
-    return before !== JSON.stringify([G.tf, G.status, G.fresh, G.open]);
+    const before = JSON.stringify([G.tf, G.status, G.fresh, G.open, G.pending]);
+    Object.assign(G, { tf: RT.tf, status: RT.status, fresh: RT.fresh, open: RT.open, pending: RT.pending, rsi_m15: RT.rsi_m15, rsi_h1: RT.rsi_h1, rt_bar: RT.bar });
+    return before !== JSON.stringify([G.tf, G.status, G.fresh, G.open, G.pending]);
   }
   async function rtTick() {
     clearTimeout(rtTimer);
@@ -210,29 +234,31 @@
   }
   function row(label, v, rr, cls = "") { return `<span>${label}</span><span class="v ${cls}">${fmt(v)}</span><span class="rr">${rr}</span>`; }
   function paintSignal() {
-    const o = G.open, f = G.fresh, p = live ?? G.price, el = $("#gSignal");
-    const t = o || f;
+    const o = G.open, pd = G.pending, p = live ?? G.price, el = $("#gSignal");
+    const t = o || pd;
     if (!t) {
       el.innerHTML = `<div class="label">Trạng thái</div><div class="side" style="color:var(--muted)">Chờ tín hiệu</div>
-        <p class="sub">Chưa có lệnh mở. Hệ thống chỉ vào lệnh khi H4 có xu hướng rõ, H1 hồi về EMA20 và giá M15 quét thanh khoản (chọc thủng đáy/đỉnh 20 nến gần nhất) rồi đóng cửa quay lại, RSI M15 chưa quá mua/bán theo chiều lệnh, ngoài khung 21h–3h.</p>
+        <p class="sub">Chưa có lệnh. Hệ thống chỉ đặt lệnh khi H4 có xu hướng rõ, H1 hồi về EMA20 và giá M15 quét thanh khoản (chọc thủng đáy/đỉnh 20 nến gần nhất) rồi đóng cửa quay lại, RSI M15 chưa quá mua/bán theo chiều lệnh, ngoài khung 21h–3h. Lệnh vào bằng lệnh chờ khi giá hồi 50% về râu nến quét.</p>
         <p><b>${G.status}</b></p>
         ${lastTrade()}`;
       return;
     }
     const d = t.side === "MUA" ? 1 : -1, risk = Math.abs(t.entry - t.sl), rNow = d * (p - t.entry) / risk;
     const sl = o ? o.sl_now : t.sl;
+    const slLabel = o && o.trailing ? "Dừng lỗ (đang kéo theo lãi)" : o && o.be_hit ? "Dừng lỗ (đã về giá vào)" : "Dừng lỗ";
     el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
-        <div><div class="label">${o ? "Lệnh đang mở" : "Tín hiệu mới"}</div><div class="side ${d > 0 ? "up" : "down"}">${t.side === "MUA" ? "MUA (Buy)" : "BÁN (Sell)"}</div></div>
-        <div style="text-align:right"><div class="label">Lãi/lỗ hiện tại</div><div class="num ${rNow >= 0 ? "up" : "down"}" style="font-size:18px;font-weight:700">${rNow >= 0 ? "+" : ""}${fmt(rNow)}R</div></div></div>
+        <div><div class="label">${o ? "Lệnh đang mở" : `Lệnh chờ (Limit) · hiệu lực đến ${pd.until.slice(11)}`}</div><div class="side ${d > 0 ? "up" : "down"}">${t.side === "MUA" ? "BUY" : "SELL"}${o ? "" : " LIMIT"} ${fmt(t.entry)}</div></div>
+        <div style="text-align:right"><div class="label">${o ? "Lãi/lỗ hiện tại" : "Cách giá hiện tại"}</div><div class="num ${o ? (rNow >= 0 ? "up" : "down") : ""}" style="font-size:18px;font-weight:700">${o ? `${rNow >= 0 ? "+" : ""}${fmt(rNow)}R` : fmt(Math.abs(p - t.entry))}</div></div></div>
       <div class="lv">
         ${t.liq != null ? row("Thanh khoản bị quét", t.liq, "") : ""}
-        ${row("Giá vào", t.entry, "")}
-        ${row(o && o.be_hit ? "Dừng lỗ (đã về giá vào)" : "Dừng lỗ", sl, `−${fmt(risk)}`, "down")}
+        ${row(o ? "Giá vào (đã khớp)" : "Giá vào lệnh chờ", t.entry, "")}
+        ${row(slLabel, sl, `−${fmt(risk)}`, "down")}
         ${row(`Dời SL hoà vốn${o && o.be_hit ? " ✓" : ""}`, t.be, "1:1", "")}
-        ${row("Chốt lời", t.tp, "R:R 1:3", "up")}
+        ${row(`Bắt đầu kéo SL${o && o.trailing ? " ✓" : ""}`, t.trail, "1:3", "up")}
+        ${row("Chốt tối đa", t.tp, "1:8", "up")}
       </div>
       ${ladder(t, p)}
-      <p class="sig-meta">Vào lúc ${t.t_in.replace("T", " ")} (giờ VN, nến M15). Dừng lỗ đặt sau râu nến quét. Giá đi được 1:1 thì dời dừng lỗ về giá vào, chốt toàn bộ ở 1:3.</p>
+      <p class="sig-meta">Tín hiệu lúc ${t.t_sig ? t.t_sig.replace("T", " ") : t.t_in.replace("T", " ")} (giờ VN, nến M15)${o ? `, khớp lúc ${o.t_in.slice(11)}` : ""}. Đặt lệnh chờ tại mức hồi 50% về râu nến quét, huỷ nếu sau 4 nến M15 chưa khớp. Tới 1:1 dời SL về giá vào; từ 1:3 kéo SL luôn cách mức lãi cao nhất 1,5R; chốt hết ở 1:8.</p>
       ${lastTrade()}`;
   }
   function ladder(t, p) {
@@ -248,17 +274,17 @@
   }
   function paintStats() {
     const s = G.stats;
-    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến M15 từ ${s.from.slice(0, 10)} (nguồn miễn phí chỉ có 60 ngày M15), một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kiểm định dài hơn trên 2 năm M15 của PAXG/USDT (đã lọc RSI và giờ): 148 lệnh, +0,37R mỗi lệnh, hệ số lợi nhuận 1,93, sụt giảm lớn nhất 6R. Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
+    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến M15 từ ${s.from.slice(0, 10)} (nguồn miễn phí chỉ có 60 ngày M15), một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kiểm định dài hơn trên 2 năm M15 của PAXG/USDT (lệnh chờ hồi 50%, kéo SL từ 1:3): 101 lệnh, thua 35%, lệnh thắng trung bình +3,9R, +0,70R mỗi lệnh, hệ số lợi nhuận 3,01, sụt giảm lớn nhất 6,4R. Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
     const card = (l, v, sub = "") => `<div class="stat"><div class="label">${l}</div><div class="v">${v}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
     $("#gStats").innerHTML = s.n ? [
       card("Số lệnh", s.n),
-      card("Thắng/hoà/thua", `${fmt(s.win, 0)}/${fmt(s.be_pct, 0)}/${fmt(s.loss_pct, 0)}%`, "thắng = chạm 1:3, hoà = về giá vào"),
+      card("Thắng/hoà/thua", `${fmt(s.win, 0)}/${fmt(s.be_pct, 0)}/${fmt(s.loss_pct, 0)}%`, "thắng = thoát có lãi, hoà = về giá vào"),
       card("Lợi nhuận TB", (s.avg_r >= 0 ? "+" : "") + fmt(s.avg_r) + "R", "mỗi lệnh"),
       card("Tổng", (s.total_r >= 0 ? "+" : "") + fmt(s.total_r, 1) + "R"),
       card("Hệ số lợi nhuận", s.pf == null ? "–" : fmt(s.pf), "tổng lãi / tổng lỗ"),
       card("Sụt giảm lớn nhất", "−" + fmt(s.max_dd_r, 1) + "R"),
     ].join("") : "";
-    $("#gTrades").innerHTML = `<thead><tr><th>Vào lúc</th><th>Lệnh</th><th class="n">Giá vào</th><th class="n">Dừng lỗ</th><th class="n">Chốt lời 1:3</th><th>Ra lúc</th><th class="n">Giá ra</th><th>Lý do</th><th class="n">Kết quả</th></tr></thead><tbody>${
+    $("#gTrades").innerHTML = `<thead><tr><th>Vào lúc</th><th>Lệnh</th><th class="n">Giá vào</th><th class="n">Dừng lỗ</th><th class="n">Tối đa 1:8</th><th>Ra lúc</th><th class="n">Giá ra</th><th>Lý do</th><th class="n">Kết quả</th></tr></thead><tbody>${
       G.trades.map(x => `<tr><td class="mono">${x.t_in.replace("T", " ")}</td><td>${sidePill(x.side)}</td><td class="n">${fmt(x.entry)}</td><td class="n down">${fmt(x.sl)}</td><td class="n up">${fmt(x.tp)}</td><td class="mono">${x.t_out.replace("T", " ")}</td><td class="n">${fmt(x.exit)}</td><td>${x.reason}</td><td class="n ${x.r >= 0 ? "up" : "down"}">${x.r > 0 ? "+" : ""}${fmt(x.r)}R</td></tr>`).join("")
     }</tbody>`;
   }
@@ -288,8 +314,8 @@
       ? { time: ts + off, position: "belowBar", color: up, shape: "arrowUp", text: "Mua" }
       : { time: ts + off, position: "aboveBar", color: down, shape: "arrowDown", text: "Bán" });
     candles.setMarkers(marks.sort((a, b) => a.time - b.time));
-    const t = G.open || G.fresh;
-    if (t) [[G.open ? G.open.sl_now : t.sl, down, "Dừng lỗ"], [t.entry, cssVar("--muted"), "Vào"], [t.be, cssVar("--muted"), "Hoà vốn 1:1"], [t.tp, up, "Chốt lời 1:3"]]
+    const t = G.open || G.pending;
+    if (t) [[G.open ? G.open.sl_now : t.sl, down, "Dừng lỗ"], [t.entry, cssVar("--muted"), G.open ? "Vào" : "Lệnh chờ"], [t.be, cssVar("--muted"), "Hoà vốn 1:1"], [t.trail, up, "Kéo SL 1:3"], [t.tp, up, "Tối đa 1:8"]]
       .forEach(([p, col, title]) => candles.createPriceLine({ price: p, color: col, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title }));
     chart.timeScale().setVisibleLogicalRange({ from: c.t.length - 140, to: c.t.length + 3 });
   }
