@@ -42,6 +42,10 @@ Khi trang đang mở, tín hiệu được tính **realtime** ngay trong trình 
 M15/H1/H4 PAXG/USDT từ Binance (dời theo giá XAU giao ngay) và chạy cùng quy tắc với `engine/gold.py`, rồi báo ngay.
 `engine/rt_check.js` chạy phần tính đó bằng Node để so khớp với engine Python (đã khớp 100% tín hiệu và lệnh).
 
+Chạy thẳng trên TradingView: `tradingview/nhip-vang.pine` là cùng quy tắc viết bằng Pine Script cho OANDA:XAUUSD khung 15 phút.
+Mở Pine Editor, dán file, bấm Add to chart; rồi Create alert → điều kiện "Nhịp Vàng" → "Any alert() function call" để nhận
+báo vào lệnh, 1:1, dừng lỗ, chốt lời qua app/email TradingView (webhook cần gói trả phí).
+
 Nhận tín hiệu qua Telegram (tuỳ chọn): tạo bot với @BotFather, nhắn cho bot một tin, lấy chat id, rồi thêm hai
 secret `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID` trong Settings → Secrets and variables → Actions.
 

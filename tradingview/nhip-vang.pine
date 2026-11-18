@@ -1,0 +1,141 @@
+// Nhịp Vàng: tín hiệu XAUUSD 3 khung chạy trực tiếp trên TradingView (cùng quy tắc với engine/gold.py).
+// Cách dùng: mở biểu đồ OANDA:XAUUSD khung 15 phút → Pine Editor → dán toàn bộ → Add to chart.
+// Cảnh báo: Alerts → Create alert → Condition "Nhịp Vàng" → "Any alert() function call" → bật thông báo app/email.
+// Quy tắc (chỉ dùng nến khung lớn đã đóng):
+//   H4  xu hướng: Tăng khi giá > EMA50 > EMA200, Giảm khi ngược lại.
+//   H1  vùng: MUA khi EMA20 > EMA50, giá trên EMA50, đã chạm EMA20 trong 3 nến H1 gần nhất, RSI < 70 (BÁN ngược lại).
+//   M15 vào lệnh: nến (hiện tại hoặc trước) chọc thủng đáy 20 nến trước đó rồi nến hiện tại đóng cửa quay lại, nến tăng: MUA.
+//   SL sau râu nến quét + 0,1 ATR, tối thiểu 15 giá, bỏ lệnh nếu cần hơn 20 giá. Tới 1:1 dời SL về giá vào, chốt 1:3.
+// Tín hiệu tham khảo, không phải lời khuyên đầu tư.
+//@version=5
+indicator("Nhịp Vàng · H4 xu hướng · H1 vùng · M15 quét thanh khoản", shorttitle = "Nhịp Vàng", overlay = true, max_labels_count = 500)
+
+tpR       = input.float(3.0, "Chốt lời (R)", minval = 1, step = 0.5)
+beR       = input.float(1.0, "Dời SL về giá vào khi đạt (R)", minval = 0.5, step = 0.5)
+look      = input.int(20, "Số nến M15 tìm đáy/đỉnh thanh khoản", minval = 5)
+minRisk   = input.float(15, "SL tối thiểu (giá, quy về mức 3.850)")
+maxRisk   = input.float(20, "SL tối đa (giá, quy về mức 3.850)")
+bufAtr    = input.float(0.1, "Đệm SL sau râu nến (ATR)", step = 0.05)
+showTable = input.bool(true, "Hiện bảng trạng thái")
+
+// ---------- Khung lớn: lấy giá trị của nến ĐÃ ĐÓNG (không vẽ lại) ----------
+trend4() =>
+    e50 = ta.ema(close, 50)
+    e200 = ta.ema(close, 200)
+    v = close > e50 and e50 > e200 ? 1 : close < e50 and e50 < e200 ? -1 : 0
+    v[1]
+
+zone1() =>
+    e20 = ta.ema(close, 20)
+    e50 = ta.ema(close, 50)
+    r = ta.rsi(close, 14)
+    touchDn = ta.lowest(low - e20, 3) <= 0
+    touchUp = ta.highest(high - e20, 3) >= 0
+    v = e20 > e50 and close > e50 and touchDn and r < 70 ? 1 : e20 < e50 and close < e50 and touchUp and r > 30 ? -1 : 0
+    v[1]
+
+h4 = request.security(syminfo.tickerid, "240", trend4(), lookahead = barmerge.lookahead_on)
+h1 = request.security(syminfo.tickerid, "60", zone1(), lookahead = barmerge.lookahead_on)
+
+// ---------- M15: quét thanh khoản ----------
+atr   = ta.atr(14)
+liqLo = ta.lowest(low[2], look)
+liqHi = ta.highest(high[2], look)
+wLo   = math.min(low, low[1])
+wHi   = math.max(high, high[1])
+sc    = close / 3850.0
+riskB = math.max(close - wLo + bufAtr * atr, minRisk * sc)
+riskS = math.max(wHi - close + bufAtr * atr, minRisk * sc)
+buySig  = barstate.isconfirmed and h4 == 1 and h1 == 1 and wLo < liqLo and close > liqLo and close > open and riskB <= maxRisk * sc
+sellSig = barstate.isconfirmed and h4 == -1 and h1 == -1 and wHi > liqHi and close < liqHi and close < open and riskS <= maxRisk * sc
+
+// ---------- Quản lý lệnh: SL trước, rồi chốt lời, tới 1:1 dời SL về giá vào, tín hiệu ngược thì đóng ----------
+var int   pos   = 0
+var float entry = na
+var float sl    = na
+var float sl0   = na
+var float be    = na
+var float tp    = na
+var float risk  = na
+var bool  t1    = false
+var int   nWin  = 0
+var int   nBe   = 0
+var int   nLoss = 0
+var float totR  = 0.0
+f(x) => str.tostring(x, format.mintick)
+
+bool  closed  = false
+bool  oppExit = false
+float exitR   = na
+string why    = ""
+if pos != 0
+    hitSl = pos == 1 ? low <= sl : high >= sl
+    hitTp = pos == 1 ? high >= tp : low <= tp
+    hitBe = pos == 1 ? high >= be : low <= be
+    opp   = pos == 1 ? sellSig : buySig
+    if hitSl
+        exitR := t1 ? 0.0 : -1.0
+        why := t1 ? "Về giá vào (hoà vốn)" : "Chạm dừng lỗ"
+    else if hitTp
+        exitR := tpR
+        why := "Đạt mục tiêu 1:" + str.tostring(tpR)
+    else
+        if hitBe and not t1
+            t1 := true
+            sl := entry
+            alert("XAUUSD: lệnh " + (pos == 1 ? "MUA" : "BÁN") + " từ " + f(entry) + " đạt 1:1 tại " + f(be) + ", dời dừng lỗ về giá vào", alert.freq_once_per_bar)
+        if opp
+            exitR := pos * (close - entry) / risk
+            why := "Tín hiệu ngược chiều"
+            oppExit := true
+    if not na(exitR)
+        closed := true
+        nWin  += exitR > 0 ? 1 : 0
+        nBe   += exitR == 0 ? 1 : 0
+        nLoss += exitR < 0 ? 1 : 0
+        totR  += exitR
+        alert("XAUUSD: " + why + " · lệnh " + (pos == 1 ? "MUA" : "BÁN") + " từ " + f(entry) + " · " + str.tostring(exitR, "#.##") + "R", alert.freq_once_per_bar)
+        pos := 0
+
+bool opened = false
+if pos == 0 and (buySig or sellSig) and (not closed or oppExit)
+    pos   := buySig ? 1 : -1
+    entry := close
+    risk  := buySig ? riskB : riskS
+    sl    := entry - pos * risk
+    sl0   := sl
+    be    := entry + pos * beR * risk
+    tp    := entry + pos * tpR * risk
+    t1    := false
+    opened := true
+    alert("XAUUSD " + (pos == 1 ? "MUA" : "BÁN") + " " + f(entry) + " | Thanh khoản bị quét " + f(pos == 1 ? liqLo : liqHi) + " | SL " + f(sl) + " | Hoà vốn tại " + f(be) + " | Chốt lời 1:" + str.tostring(tpR) + " " + f(tp), alert.freq_once_per_bar_close)
+
+// ---------- Vẽ ----------
+plotshape(opened and pos == 1, "MUA", shape.triangleup, location.belowbar, color.new(color.teal, 0), size = size.small, text = "MUA")
+plotshape(opened and pos == -1, "BÁN", shape.triangledown, location.abovebar, color.new(color.red, 0), size = size.small, text = "BÁN")
+plot(pos != 0 ? entry : na, "Giá vào", color.gray, 1, plot.style_linebr)
+plot(pos != 0 ? sl : na, "Dừng lỗ", color.red, 2, plot.style_linebr)
+plot(pos != 0 and not t1 ? be : na, "Hoà vốn 1:1", color.new(color.gray, 40), 1, plot.style_linebr)
+plot(pos != 0 ? tp : na, "Chốt lời", color.teal, 2, plot.style_linebr)
+alertcondition(opened and pos == 1, "Nhịp Vàng MUA", "XAUUSD MUA {{close}}")
+alertcondition(opened and pos == -1, "Nhịp Vàng BÁN", "XAUUSD BÁN {{close}}")
+
+var table tb = table.new(position.top_right, 2, 7, bgcolor = color.new(color.black, 20), border_width = 1)
+if showTable and barstate.islast
+    t = (h4 == 1 ? "Tăng" : h4 == -1 ? "Giảm" : "Đi ngang")
+    z = (h1 == 1 ? "Vùng MUA" : h1 == -1 ? "Vùng BÁN" : "Chưa có vùng")
+    n = nWin + nBe + nLoss
+    table.cell(tb, 0, 0, "H4 xu hướng", text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 0, t, text_color = h4 == 1 ? color.lime : h4 == -1 ? color.red : color.silver, text_size = size.small)
+    table.cell(tb, 0, 1, "H1 vùng", text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 1, z, text_color = h1 == 1 ? color.lime : h1 == -1 ? color.red : color.silver, text_size = size.small)
+    table.cell(tb, 0, 2, "Lệnh", text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 2, pos == 0 ? "Chờ tín hiệu" : (pos == 1 ? "MUA " : "BÁN ") + f(entry) + (t1 ? " (SL ở giá vào)" : ""), text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 3, "SL · TP", text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 3, pos == 0 ? "–" : f(sl) + " · " + f(tp), text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 4, "Thắng/hoà/thua", text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 4, str.tostring(nWin) + "/" + str.tostring(nBe) + "/" + str.tostring(nLoss) + " (" + str.tostring(n) + " lệnh)", text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 5, "Tổng · TB", text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 5, str.tostring(totR, "#.#") + "R · " + (n > 0 ? str.tostring(totR / n, "#.##") : "–") + "R/lệnh", text_color = totR >= 0 ? color.lime : color.red, text_size = size.small)
+    table.cell(tb, 0, 6, "Khung", text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 6, timeframe.period == "15" ? "M15 ✓" : "Hãy chuyển sang M15", text_color = timeframe.period == "15" ? color.white : color.orange, text_size = size.small)
