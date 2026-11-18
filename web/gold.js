@@ -89,6 +89,115 @@
     catch { $("#goldNotify").textContent = "Trình duyệt không hỗ trợ"; }
   });
 
+  /* ---------- Tín hiệu realtime: tính lại 3 khung ngay trong trình duyệt khi mỗi nến M15 đóng ----------
+     Cùng quy tắc với engine/gold.py, trên nến PAXG/USDT (Binance, cập nhật tức thì) dời theo giá XAU giao ngay. */
+  const RR = { BE: 1, TP: 3 }, SWEEP = 20, BUF = 0.1, REF = 3850, MIN_R = 15, MAX_R = 20;
+  const KL = "https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval=";
+  let RT = null, rtTimer;
+  async function klines(iv, n, off) {
+    const r = await fetch(`${KL}${iv}&limit=${n}`, { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const now = Date.now(), k = (await r.json()).filter(x => x[6] < now); // chỉ nến đã đóng
+    const col = j => k.map(x => +x[j] + off);
+    return { t: k.map(x => x[0] / 1000), o: col(1), h: col(2), l: col(3), c: col(4) };
+  }
+  const ewm = (a, alpha) => { let e = null; return a.map(v => (v == null ? e : (e = e == null ? v : e + alpha * (v - e)))); };
+  const emaA = (a, n) => ewm(a, 2 / (n + 1));
+  function rsiA(c, n = 14) {
+    const d = c.map((v, i) => (i ? v - c[i - 1] : null));
+    const up = ewm(d.map(x => (x == null ? null : Math.max(x, 0))), 1 / n), dn = ewm(d.map(x => (x == null ? null : Math.max(-x, 0))), 1 / n);
+    return c.map((_, i) => (up[i] == null || !dn[i] ? 50 : 100 - 100 / (1 + up[i] / dn[i])));
+  }
+  const atrA = b => ewm(b.c.map((c, i) => (i ? Math.max(b.h[i] - b.l[i], Math.abs(b.h[i] - b.c[i - 1]), Math.abs(b.l[i] - b.c[i - 1])) : b.h[i] - b.l[i])), 1 / 14);
+  // Giá trị của nến khung lớn ĐÃ ĐÓNG gần nhất tại thời điểm mở từng nến M15
+  function closedOn(H, vals, period, ts) { let j = -1; return ts.map(t => { while (j + 1 < H.t.length && H.t[j + 1] + period <= t) j++; return j < 0 ? null : vals[j]; }); }
+  const isoVN = t => new Date((t + 7 * 3600) * 1000).toISOString().slice(0, 16);
+  const r2j = x => Math.round(x * 100) / 100;
+
+  function rtCompute(m, h1, h4) {
+    const e50 = emaA(h4.c, 50), e200 = emaA(h4.c, 200);
+    const tr4 = h4.c.map((c, i) => (c > e50[i] && e50[i] > e200[i] ? "Tăng" : c < e50[i] && e50[i] < e200[i] ? "Giảm" : "Đi ngang"));
+    const a20 = emaA(h1.c, 20), a50 = emaA(h1.c, 50), rs1 = rsiA(h1.c);
+    const zone = h1.c.map((c, i) => {
+      if (i < 2) return "";
+      const dn = [0, 1, 2].some(k => h1.l[i - k] <= a20[i - k]), upT = [0, 1, 2].some(k => h1.h[i - k] >= a20[i - k]);
+      if (a20[i] > a50[i] && c > a50[i] && dn && rs1[i] < 70) return "MUA";
+      if (a20[i] < a50[i] && c < a50[i] && upT && rs1[i] > 30) return "BÁN";
+      return "";
+    });
+    const T4 = closedOn(h4, tr4, 14400, m.t), Z1 = closedOn(h1, zone, 3600, m.t);
+    const n = m.c.length, atr = atrA(m), m20 = emaA(m.c, 20), m50 = emaA(m.c, 50), rsm = rsiA(m.c);
+    const liqLo = [], liqHi = [], wLo = [], wHi = [], sig = [];
+    for (let i = 0; i < n; i++) {
+      liqLo[i] = i >= SWEEP + 1 ? Math.min(...m.l.slice(i - SWEEP - 1, i - 1)) : null;
+      liqHi[i] = i >= SWEEP + 1 ? Math.max(...m.h.slice(i - SWEEP - 1, i - 1)) : null;
+      wLo[i] = i ? Math.min(m.l[i], m.l[i - 1]) : m.l[i];
+      wHi[i] = i ? Math.max(m.h[i], m.h[i - 1]) : m.h[i];
+      sig[i] = null;
+      if (liqLo[i] == null) continue;
+      const c = m.c[i], sc = c / REF;
+      let side = null, raw;
+      if (T4[i] === "Tăng" && Z1[i] === "MUA" && wLo[i] < liqLo[i] && c > liqLo[i] && c > m.o[i]) { side = "MUA"; raw = c - wLo[i]; }
+      else if (T4[i] === "Giảm" && Z1[i] === "BÁN" && wHi[i] > liqHi[i] && c < liqHi[i] && c < m.o[i]) { side = "BÁN"; raw = wHi[i] - c; }
+      if (!side) continue;
+      const risk = Math.max(raw + BUF * atr[i], MIN_R * sc);
+      if (risk > MAX_R * sc) continue;
+      const d = side === "MUA" ? 1 : -1;
+      sig[i] = { side, entry: c, sl: c - d * risk, be: c + d * RR.BE * risk, tp: c + d * RR.TP * risk, risk, liq: d > 0 ? liqLo[i] : liqHi[i], t: m.t[i] };
+    }
+    // Quản lý lệnh y như backtest của engine: SL trước, rồi mục tiêu, tới 1:1 dời SL về giá vào, tín hiệu ngược thì đóng
+    const trades = []; let pos = null;
+    for (let i = Math.min(200, n - 1); i < n; i++) {
+      if (pos) {
+        const d = pos.side === "MUA" ? 1 : -1, hi = m.h[i], lo = m.l[i];
+        const hitSl = d > 0 ? lo <= pos.slNow : hi >= pos.slNow, hitTp = d > 0 ? hi >= pos.tp : lo <= pos.tp, hitBe = d > 0 ? hi >= pos.be : lo <= pos.be;
+        const opp = sig[i] && sig[i].side !== pos.side;
+        let res = null;
+        if (hitSl) res = [pos.t1 ? 0 : -1];
+        else if (hitTp) res = [RR.TP];
+        else { if (hitBe && !pos.t1) { pos.t1 = true; pos.slNow = pos.entry; } if (opp) res = [d * (m.c[i] - pos.entry) / pos.risk]; }
+        if (res) { trades.push(pos.t); pos = null; if (!opp) continue; }
+      }
+      if (!pos && sig[i]) pos = { ...sig[i], slNow: sig[i].sl, t1: false };
+    }
+    const out = s => ({ side: s.side, entry: r2j(s.entry), sl: r2j(s.sl), be: r2j(s.be), tp: r2j(s.tp), liq: r2j(s.liq), t_in: isoVN(s.t) });
+    const last = n - 1, taken = new Set([...trades, ...(pos ? [pos.t] : [])]);
+    let fresh = null;
+    for (let i = last; i > last - 4 && i >= 0; i--) if (sig[i] && taken.has(m.t[i])) { fresh = { ...out(sig[i]), id: `${sig[i].side}-${m.t[i]}` }; break; }
+    const t4 = tr4[h4.c.length - 1], z1 = zone[h1.c.length - 1];
+    const m15 = m.c[last] > m20[last] && m20[last] > m50[last] ? "Tăng" : m.c[last] < m20[last] && m20[last] < m50[last] ? "Giảm" : "Đi ngang";
+    let status;
+    if (t4 === "Đi ngang") status = "H4 đi ngang: đứng ngoài, chờ xu hướng rõ.";
+    else if (z1 !== (t4 === "Tăng" ? "MUA" : "BÁN")) status = `H4 ${t4.toLowerCase()}: chờ giá H1 hồi về EMA20 để vào vùng ${t4 === "Tăng" ? "MUA" : "BÁN"}.`;
+    else status = `H4 ${t4.toLowerCase()}, H1 đang ở vùng ${z1}: chờ M15 quét ${z1 === "MUA" ? "đáy" : "đỉnh"} ${(z1 === "MUA" ? liqLo[last] : liqHi[last]).toFixed(2)} rồi đóng cửa quay lại để vào lệnh.`;
+    return {
+      tf: { H4: t4, H1: z1 || "Chưa có vùng", M15: m15 }, status, fresh,
+      open: pos ? { ...out(pos), be_hit: pos.t1, sl_now: r2j(pos.slNow) } : null,
+      rsi_m15: r2j(rsm[last]), rsi_h1: r2j(rs1[h1.c.length - 1]), bar: isoVN(m.t[last] + 900),
+      sigs: sig.filter(Boolean).map(x => x.t), trades,
+    };
+  }
+  function applyRT() {
+    if (!RT || !G || G.demo) return false;
+    const before = JSON.stringify([G.tf, G.status, G.fresh, G.open]);
+    Object.assign(G, { tf: RT.tf, status: RT.status, fresh: RT.fresh, open: RT.open, rsi_m15: RT.rsi_m15, rsi_h1: RT.rsi_h1, rt_bar: RT.bar });
+    return before !== JSON.stringify([G.tf, G.status, G.fresh, G.open]);
+  }
+  async function rtTick() {
+    clearTimeout(rtTimer);
+    try {
+      if (live == null) { const q = await spot(); live = q.price; }
+      const p0 = await klines("15m", 2, 0), off = live - p0.c[p0.c.length - 1]; // chênh PAXG so với XAU giao ngay
+      const [m, h1, h4] = await Promise.all([klines("15m", 1000, off), klines("1h", 500, off), klines("4h", 1000, off)]);
+      RT = rtCompute(m, h1, h4);
+      if (applyRT()) render(); else paintMeta();
+      checkAlerts();
+    } catch (e) { RT = null; }
+    // Chạy lại 5 giây sau khi nến M15 kế tiếp đóng
+    const next = Math.ceil(Date.now() / 900e3) * 900e3 + 5000 - Date.now();
+    rtTimer = setTimeout(rtTick, marketOpen() ? Math.min(next, 900e3) : 1800e3);
+  }
+
   /* ---------- Hiển thị ---------- */
   function paintHead() {
     const p = live ?? G.price, el = $("#gPrice");
@@ -186,13 +295,15 @@
     tf = b.dataset.tf; $$("#gTf button").forEach(x => x.setAttribute("aria-pressed", x === b)); if (G) paintChart();
   }));
 
-  function render() {
-    $("#gDemo").hidden = !G.demo;
+  function paintMeta() {
     const zp = z => z === "MUA" ? pill("Tăng").replace(">Tăng<", ">Vùng MUA<") : z === "BÁN" ? pill("Giảm").replace(">Giảm<", ">Vùng BÁN<") : pill("Đi ngang").replace(">Đi ngang<", ">Chưa có vùng<");
     $("#gTrend").innerHTML = `<span class="sub">H4</span>${pill(G.tf.H4)} <span class="sub">H1</span>${zp(G.tf.H1)} <span class="sub">M15</span>${pill(G.tf.M15)}`;
     $("#gInd").textContent = `${fmt(G.rsi_m15, 0)} · ${fmt(G.rsi_h1, 0)}`;
-    $("#gAsof").textContent = `Tín hiệu tính lúc ${G.generated_at.slice(11)} ${G.generated_at.slice(8, 10)}/${G.generated_at.slice(5, 7)}`;
-    paintHead(); paintSignal(); paintStats();
+    $("#gAsof").textContent = G.rt_bar ? `Tín hiệu realtime · nến M15 đóng ${G.rt_bar.slice(11)}` : `Tín hiệu tính lúc ${G.generated_at.slice(11)} ${G.generated_at.slice(8, 10)}/${G.generated_at.slice(5, 7)}${G.demo ? "" : " · đang nối realtime…"}`;
+  }
+  function render() {
+    $("#gDemo").hidden = !G.demo;
+    paintMeta(); paintHead(); paintSignal(); paintStats();
     if (visible()) paintChart();
   }
   const visible = () => !$('section[data-view="vang"]').hidden;
@@ -201,7 +312,7 @@
     if (!visible()) return;
     loadTV();
     if (G && !chart) paintChart();
-    if (!started && G) { started = true; if (!G.demo) liveTick(); }
+    if (!started && G) { started = true; if (!G.demo) { liveTick(); rtTick(); } }
   }
   new MutationObserver(onShow).observe($('section[data-view="vang"]'), { attributes: true, attributeFilter: ["hidden"] });
 
@@ -212,10 +323,11 @@
       const nd = await r.json();
       const changed = !G || nd.generated_at !== G.generated_at;
       G = nd;
+      applyRT();
       if (changed) { render(); checkAlerts(); }
       onShow();
       // Cảnh báo tín hiệu mới vẫn chạy khi đang xem tab khác
-      if (!started && !G.demo && window.Notification?.permission === "granted") { started = true; liveTick(); }
+      if (!started && !G.demo && window.Notification?.permission === "granted") { started = true; liveTick(); rtTick(); }
     } catch (e) {
       if (!G) $("#gSignal").innerHTML = `<div class="empty">Chưa có dữ liệu vàng (data/gold.json). Chạy <span class="mono">python engine/gold.py</span>.</div>`;
     }
