@@ -25,7 +25,7 @@ def ind(df):
     df["dhi"], df["dlo"] = df["high"].rolling(20).max().shift(1), df["low"].rolling(20).min().shift(1)
     # Supertrend (10, 3)
     hl2, a = (df["high"] + df["low"]) / 2, df["atr"]
-    up, dn = (hl2 - 3 * a).to_numpy(), (hl2 + 3 * a).to_numpy()
+    up, dn = (hl2 - 3 * a).to_numpy(copy=True), (hl2 + 3 * a).to_numpy(copy=True)
     cl = c.to_numpy(); st = np.zeros(len(df)); dirn = np.ones(len(df))
     for i in range(1, len(df)):
         up[i] = max(up[i], up[i - 1]) if cl[i - 1] > up[i - 1] else up[i]
@@ -45,6 +45,7 @@ def h4trend(h1raw, idx):
 def sim(df, side, risk, start, tp, be=None, trail=None):
     """Vào lệnh thị trường ở giá đóng cửa nến tín hiệu, một lệnh mỗi lúc, SL trước khi xét chốt lời."""
     H, L, C = (df[k].to_numpy() for k in ("high", "low", "close"))
+    side, risk = np.asarray(side, float), np.asarray(risk, float)
     out, pos = [], None
     for i in range(start, len(df)):
         if pos:
@@ -181,8 +182,6 @@ g1, _ = gold.shift_to_spot(gold.clean(gold.yahoo("1h", "730d")), spot)
 g15, _ = gold.shift_to_spot(gold.clean(gold.yahoo("15m", "60d")), spot)
 P, PM = methods(p15, p1)
 G, GM = methods(g15, g1)
-# Với phương pháp H1 dùng thêm 2 năm H1 GC=F (dữ liệu độc lập) để kiểm chứng
-GH, _ = methods(g15, g1)
 rows = []
 print(f"##### Phí mỗi lệnh {SPREAD} USD (trừ vào R). Kiểm chứng: H1 trên 2 năm GC=F; M15 trên 60 ngày GC=F.")
 a = metrics(ours(p15, p1, 2000)); b = metrics(ours(g15, g1, 200))
