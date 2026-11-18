@@ -275,6 +275,83 @@ def backtest(m15, buy, sell, start=200):
     return trades, pos, pend
 
 
+# ---------- Hệ 2: phá đỉnh/đáy 20 nến H1 theo xu hướng H4 ----------
+# Nến H1 đóng cửa trên đỉnh cao nhất 20 nến H1 trước đó khi H4 tăng: MUA ngay giá đóng cửa (BÁN ngược lại).
+# Dừng lỗ 2 ATR H1; tới 1R dời SL về giá vào; từ 3R kéo SL cách mức lãi cao nhất 1,5R; chốt hết ở 8R.
+# Đứng thứ nhất trong lần so 12 phương pháp (2 năm PAXG: 167 lệnh, +0,69R sau phí, hệ số 2,54; 2 năm GC=F: +78R).
+BO_LOOK, BO_ATR = 20, 2.0
+
+
+def bo_setups(h1, h4tr_h1):
+    dhi = h1["high"].rolling(BO_LOOK).max().shift(1)
+    dlo = h1["low"].rolling(BO_LOOK).min().shift(1)
+    side = np.where((h1["close"] > dhi) & (h4tr_h1 == "Tăng"), 1, np.where((h1["close"] < dlo) & (h4tr_h1 == "Giảm"), -1, 0))
+    return side, (BO_ATR * h1["atr"]).to_numpy(), dhi, dlo
+
+
+def bo_backtest(h1, side, risk, start=500):
+    """Một lệnh mỗi lúc, vào ở giá đóng cửa nến tín hiệu, quản lý trên nến H1 (SL xét trước)."""
+    hi, lo, cl = (h1[k].to_numpy() for k in ("high", "low", "close"))
+    t = h1.index
+    trades, pos = [], None
+    for i in range(start, len(h1)):
+        if pos is not None:
+            d = pos["d"]
+            fav = d * ((hi[i] if d == 1 else lo[i]) - pos["entry"]) / pos["risk"]
+            res = None
+            if (lo[i] <= pos["sl"]) if d == 1 else (hi[i] >= pos["sl"]):
+                r = d * (pos["sl"] - pos["entry"]) / pos["risk"]
+                res = r, ("Dừng lỗ" if r < 0 else "Hoà vốn" if r == 0 else "Chạm SL đã kéo theo lãi"), pos["sl"]
+            elif fav >= TP_R:
+                res = TP_R, f"Đạt tối đa 1:{TP_R:g}", pos["tp"]
+            else:
+                pos["mx"] = max(pos["mx"], fav)
+                if fav >= BE_R and d * (pos["entry"] - pos["sl"]) > 0:
+                    pos["sl"], pos["t1"] = pos["entry"], True
+                if pos["mx"] >= TRAIL_START:
+                    nsl = pos["entry"] + d * (pos["mx"] - TRAIL_GAP) * pos["risk"]
+                    if d * (nsl - pos["sl"]) > 0:
+                        pos["sl"] = nsl
+            if res:
+                trades.append({**{k: pos[k] for k in ("side", "entry", "be", "trail", "tp", "t_in")}, "sl": pos["sl0"],
+                               "t_out": t[i], "exit": float(res[2]), "r": round(float(res[0]), 2) + 0.0, "reason": res[1]})
+                pos = None
+            continue
+        if side[i] and np.isfinite(risk[i]) and risk[i] > 0:
+            d, e, rk = int(side[i]), float(cl[i]), float(risk[i])
+            pos = {"d": d, "side": "MUA" if d == 1 else "BÁN", "entry": e, "risk": rk, "sl": e - d * rk, "sl0": e - d * rk,
+                   "be": e + d * BE_R * rk, "trail": e + d * TRAIL_START * rk, "tp": e + d * TP_R * rk,
+                   "t_in": t[i], "mx": 0.0, "t1": False}
+    return trades, pos
+
+
+def bo_build(h1, h4tr_all, now):
+    H1, H4 = pd.Timedelta(hours=1), pd.Timedelta(hours=4)
+    h4tr_h1 = closed_on(h4tr_all, H4, h1.index).fillna("Đi ngang")
+    side, risk, dhi, dlo = bo_setups(h1, h4tr_h1)
+    trades, pos = bo_backtest(h1, side, risk)
+    i_h = last_closed(h1, H1, now)
+    last = h1.iloc[i_h]
+    open_pos = None
+    if pos:
+        open_pos = {**trade_out({**pos, "sl": pos["sl0"]}), "be_hit": bool(pos["t1"]), "trailing": bool(pos["mx"] >= TRAIL_START),
+                    "sl_now": r2(pos["sl"]), "id": f"BO-{pos['side']}-{int(pos['t_in'].timestamp())}"}
+    fresh = open_pos if pos and pos["t_in"] >= h1.index[max(i_h - 1, 0)] else None
+    t4 = h4tr_h1.iloc[i_h]
+    hi20, lo20 = dhi.iloc[i_h], dlo.iloc[i_h]
+    if open_pos:
+        status = f"Đang giữ lệnh {open_pos['side']} từ {open_pos['entry']}."
+    elif t4 == "Tăng":
+        status = f"H4 tăng: chờ nến H1 đóng cửa trên đỉnh 20 nến {r2(h1['high'].iloc[i_h - BO_LOOK + 1:i_h + 1].max())} để MUA."
+    elif t4 == "Giảm":
+        status = f"H4 giảm: chờ nến H1 đóng cửa dưới đáy 20 nến {r2(h1['low'].iloc[i_h - BO_LOOK + 1:i_h + 1].min())} để BÁN."
+    else:
+        status = "H4 đi ngang: đứng ngoài."
+    return {"name": "Phá đỉnh/đáy 20 nến H1 theo H4", "status": status, "trend": t4, "open": open_pos, "fresh": fresh,
+            "stats": stats(trades), "trades": [trade_out(x) for x in trades[-30:]][::-1],
+            "atr_h1": r2(last["atr"]), "risk_now": r2(BO_ATR * last["atr"])}
+
+
 def stats(trades):
     if not trades:
         return {"n": 0}
@@ -375,6 +452,7 @@ def build(h1_raw, m15_raw, meta):
                   f"H4 {t4.lower()}, H1 đang ở vùng {z1}: chờ M15 quét {'đáy' if z1 == 'MUA' else 'đỉnh'} "
                   f"{lv:.2f} rồi đóng cửa quay lại để vào lệnh.")
     s = stats(trades)
+    bo = bo_build(h1, h4tr_all, now)
     return {
         "generated_at": datetime.now(VN_TZ).strftime("%Y-%m-%dT%H:%M"),
         "symbol": "XAUUSD", "demo": meta["source"] == "MÔ PHỎNG", **meta,
@@ -384,6 +462,7 @@ def build(h1_raw, m15_raw, meta):
         "fresh": fresh, "open": open_pos, "pending": pending, "stats": s,
         "rr": {"be": BE_R, "trail": TRAIL_START, "gap": TRAIL_GAP, "tp": TP_R, "pullback": ENTRY_PULLBACK, "wait": ENTRY_WAIT},
         "trades": [trade_out(x) for x in trades[-30:]][::-1],
+        "bo": bo,
         "m15": bars(m15, CHART["m15"]), "h1": bars(h1, CHART["h1"]), "h4": bars(h4, CHART["h4"]),
     }
 
@@ -403,6 +482,18 @@ def telegram(data, prev):
                      f"Dừng lỗ: {f['sl']}\nTới {f['be']} (1:1): dời SL về giá vào\nTới {f.get('trail')} (1:{TRAIL_START:g}): kéo SL cách {TRAIL_GAP:g}R\n"
                      f"Chốt tối đa (1:{TP_R:g}): {f['tp']}\nHiệu lực đến {f.get('until', '').replace('T', ' ')}\n"
                      f"H4 {data['tf']['H4']} · H1 vùng {data['tf']['H1']} · M15 xác nhận. Không phải khuyến nghị đầu tư."))
+    b = data.get("bo") or {}
+    bf = b.get("fresh")
+    if bf and bf["id"] not in sent:
+        icon = "🟢" if bf["side"] == "MUA" else "🔴"
+        msgs.append((bf["id"], f"{icon} [Hệ 2 · Phá đỉnh/đáy H1] XAUUSD {bf['side']} {bf['entry']} (vào ngay)\nDừng lỗ: {bf['sl']}\n"
+                     f"Tới {bf['be']} (1:1): dời SL về giá vào\nTới {bf['trail']} (1:{TRAIL_START:g}): kéo SL cách {TRAIL_GAP:g}R\n"
+                     f"Chốt tối đa (1:{TP_R:g}): {bf['tp']}\nKhông phải khuyến nghị đầu tư."))
+    for t in b.get("trades", [])[:3]:
+        key = f"x-bo-{t['side']}-{t['t_in']}"
+        pb = ((prev or {}).get("bo") or {}).get("open")
+        if key not in sent and pb and pb["t_in"] == t["t_in"]:
+            msgs.append((key, f"⚪ [Hệ 2] Đóng lệnh {t['side']} XAUUSD vào {t['entry']}: {t['reason']} tại {t['exit']} ({t['r']:+}R)"))
     for t in data["trades"][:3]:
         key = f"x-{t['side']}-{t['t_in']}"
         if key not in sent and (prev or {}).get("open") and prev["open"]["t_in"] == t["t_in"]:
@@ -436,6 +527,8 @@ def main():
     s = data["stats"]
     print(f"XAUUSD {data['price']} | {data['tf']} | {data['status']}")
     print(f"Mới: {data['fresh']} | đang mở: {data['open']}")
+    b = data["bo"]
+    print(f"Hệ 2: {b['status']} | mở: {b['open']} | thống kê: {b['stats']}")
     print(f"Backtest M15 từ {s.get('from')}: {s['n']} lệnh, thắng {s.get('win')}%, TB {s.get('avg_r')}R, "
           f"tổng {s.get('total_r')}R, PF {s.get('pf')}, sụt giảm {s.get('max_dd_r')}R")
 

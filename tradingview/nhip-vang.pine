@@ -10,6 +10,7 @@
 //   Vào lệnh: đặt LỆNH CHỜ tại mức hồi 50% từ giá đóng cửa về râu nến quét, huỷ nếu 4 nến M15 chưa khớp.
 //   SL sau râu nến quét + 0,1 ATR, tối thiểu 15 giá, bỏ tín hiệu nếu cần hơn 20 giá.
 //   Tới 1:1 dời SL về giá vào; từ 1:3 kéo SL luôn cách mức lãi cao nhất 1,5R; chốt hết ở 1:8.
+// Hệ 2 (song song): phá đỉnh/đáy 20 nến H1 theo H4, vào ngay, SL 2 ATR H1, cùng cách dời SL/kéo SL/chốt tối đa.
 // Tín hiệu tham khảo, không phải lời khuyên đầu tư.
 indicator("Nhịp Vàng · H4 xu hướng · H1 vùng · M15 quét thanh khoản", shorttitle = "Nhịp Vàng", overlay = true, max_labels_count = 500, max_boxes_count = 500, max_lines_count = 500)
 
@@ -236,7 +237,97 @@ plot(pos != 0 ? sl : na, "Dừng lỗ (kéo theo)", cDn, 2, plot.style_linebr)
 alertcondition(newPend and pdDir == 1, "Nhịp Vàng đặt lệnh chờ MUA", "XAUUSD BUY LIMIT")
 alertcondition(newPend and pdDir == -1, "Nhịp Vàng đặt lệnh chờ BÁN", "XAUUSD SELL LIMIT")
 
-var table tb = table.new(position.top_right, 2, 7, bgcolor = color.new(color.black, 20), border_width = 1)
+// ---------- Hệ 2: phá đỉnh/đáy 20 nến H1 theo xu hướng H4 (chạy song song, dùng chung cảnh báo) ----------
+// Nến H1 đóng cửa trên đỉnh 20 nến H1 trước đó khi H4 tăng: MUA ngay (BÁN ngược lại). SL 2 ATR H1.
+// Tới 1:1 dời SL về giá vào; từ 1:3 kéo SL cách mức lãi cao nhất 1,5R; chốt hết ở 1:8.
+useBo   = input.bool(true, "Hệ 2: phá đỉnh/đáy 20 nến H1 theo H4")
+boAtrK  = input.float(2.0, "Hệ 2: dừng lỗ (số ATR H1)", minval = 0.5, step = 0.5)
+cBo     = input.color(color.new(#FF9800, 0), "Hệ 2: màu")
+boBars() =>
+    hi20 = ta.highest(high, 20)[1]
+    lo20 = ta.lowest(low, 20)[1]
+    a = ta.atr(14)
+    [close[1], hi20[1], lo20[1], a[1], time[1]]
+[hC, hHi, hLo, hAtr, hT] = request.security(syminfo.tickerid, "60", boBars(), lookahead = barmerge.lookahead_on)
+newH1 = hT != hT[1]
+
+var int   bPos  = 0
+var float bE    = na
+var float bSl   = na
+var float bSl0  = na
+var float bBe   = na
+var float bTr   = na
+var float bTp   = na
+var float bRisk = na
+var float bMx   = 0.0
+var bool  bT1   = false
+var bool  bTrailOn = false
+var int   bW    = 0
+var int   bB    = 0
+var int   bL    = 0
+var float bTot  = 0.0
+var label lbBo  = na
+
+bool bOpened = false
+if useBo and bPos == 0 and newH1 and not na(hHi)
+    bDir = hC > hHi and h4 == 1 ? 1 : hC < hLo and h4 == -1 ? -1 : 0
+    if bDir != 0
+        bPos  := bDir
+        bE    := hC
+        bRisk := boAtrK * hAtr
+        bSl   := bE - bPos * bRisk
+        bSl0  := bSl
+        bBe   := bE + bPos * beR * bRisk
+        bTr   := bE + bPos * trailAt * bRisk
+        bTp   := bE + bPos * tpR * bRisk
+        bMx   := 0.0
+        bT1   := false
+        bTrailOn := false
+        bOpened := true
+        alert("XAUUSD [Hệ 2 · phá " + (bPos == 1 ? "đỉnh" : "đáy") + " 20 nến H1] " + sideTxt(bPos) + " NGAY " + f(bE) + " | SL " + f(bSl) + " | Hoà vốn tại " + f(bBe) + " | Kéo SL từ " + f(bTr) + " | Tối đa " + f(bTp), alert.freq_once_per_bar)
+
+float bExit = na
+string bWhy = ""
+if bPos != 0
+    bFav = bPos * ((bPos == 1 ? high : low) - bE) / bRisk
+    if bPos == 1 ? low <= bSl : high >= bSl
+        bExit := bPos * (bSl - bE) / bRisk
+        bWhy := bExit < 0 ? "Chạm dừng lỗ" : bExit == 0 ? "Về giá vào (hoà vốn)" : "Chạm SL đã kéo theo lãi"
+    else if bFav >= tpR
+        bExit := tpR
+        bWhy := "Đạt tối đa 1:" + str.tostring(tpR)
+    else
+        bMx := math.max(bMx, bFav)
+        if bFav >= beR and bPos * (bE - bSl) > 0
+            bSl := bE
+            bT1 := true
+            alert("XAUUSD [Hệ 2]: lệnh " + sideTxt(bPos) + " từ " + f(bE) + " đạt 1:1, dời dừng lỗ về giá vào", alert.freq_once_per_bar)
+        if bMx >= trailAt
+            bNsl = bE + bPos * (bMx - trailGap) * bRisk
+            if bPos * (bNsl - bSl) > 0
+                if not bTrailOn
+                    alert("XAUUSD [Hệ 2]: lệnh " + sideTxt(bPos) + " đạt 1:" + str.tostring(trailAt) + ", bắt đầu kéo dừng lỗ", alert.freq_once_per_bar)
+                bTrailOn := true
+                bSl := bNsl
+if not na(bExit)
+    bW   += bExit > 0 ? 1 : 0
+    bB   += bExit == 0 ? 1 : 0
+    bL   += bExit < 0 ? 1 : 0
+    bTot += bExit
+    alert("XAUUSD [Hệ 2]: " + bWhy + " · lệnh " + sideTxt(bPos) + " từ " + f(bE) + " · " + str.tostring(bExit, "#.##") + "R", alert.freq_once_per_bar)
+    label.new(bar_index, bExit > 0 ? (bPos == 1 ? high : low) : bExit < 0 ? bSl0 : bE, "H2 " + (bExit > 0 ? "+" : "") + str.tostring(bExit, "#.##") + "R", style = label.style_label_center, color = cBo, textcolor = color.white, size = size.small)
+    bPos := 0
+
+label.delete(lbBo)
+if bPos != 0 and barstate.islast
+    lbBo := label.new(bar_index + 3, bE, "HỆ 2 " + sideTxt(bPos) + " " + f(bE) + " | SL " + f(bSl) + (bTrailOn ? " (đang kéo)" : bT1 ? " (ở giá vào)" : "") + " | 1:1 " + f(bBe) + " | kéo SL từ " + f(bTr) + " | tối đa " + f(bTp), style = label.style_label_left, color = cBo, textcolor = color.white, size = size.small)
+plotshape(bOpened and bPos == 1, "Hệ 2 MUA", shape.labelup, location.belowbar, cBo, text = "H2", textcolor = color.white, size = size.tiny)
+plotshape(bOpened and bPos == -1, "Hệ 2 BÁN", shape.labeldown, location.abovebar, cBo, text = "H2", textcolor = color.white, size = size.tiny)
+plot(bPos != 0 ? bSl : na, "Hệ 2 dừng lỗ", cBo, 2, plot.style_linebr)
+plot(bPos != 0 ? bE : na, "Hệ 2 giá vào", color.new(cBo, 50), 1, plot.style_linebr)
+plot(bPos != 0 ? bTp : na, "Hệ 2 tối đa", color.new(cBo, 60), 1, plot.style_linebr)
+
+var table tb = table.new(position.top_right, 2, 9, bgcolor = color.new(color.black, 20), border_width = 1)
 if showTable and barstate.islast
     t = (h4 == 1 ? "Tăng" : h4 == -1 ? "Giảm" : "Đi ngang")
     z = (h1 == 1 ? "Vùng MUA" : h1 == -1 ? "Vùng BÁN" : "Chưa có vùng")
@@ -255,3 +346,8 @@ if showTable and barstate.islast
     table.cell(tb, 1, 5, str.tostring(totR, "#.#") + "R · " + (n > 0 ? str.tostring(totR / n, "#.##") : "–") + "R/lệnh", text_color = totR >= 0 ? color.lime : color.red, text_size = size.small)
     table.cell(tb, 0, 6, "Khung", text_color = color.white, text_size = size.small)
     table.cell(tb, 1, 6, timeframe.period == "15" ? "M15 ✓" : "Hãy chuyển sang M15", text_color = timeframe.period == "15" ? color.white : color.orange, text_size = size.small)
+    bn = bW + bB + bL
+    table.cell(tb, 0, 7, "Hệ 2 lệnh", text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 7, not useBo ? "Tắt" : bPos != 0 ? sideTxt(bPos) + " " + f(bE) + " · SL " + f(bSl) : h4 == 1 ? "Chờ H1 đóng > " + f(hHi) : h4 == -1 ? "Chờ H1 đóng < " + f(hLo) : "H4 đi ngang", text_color = cBo, text_size = size.small)
+    table.cell(tb, 0, 8, "Hệ 2 thống kê", text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 8, str.tostring(bW) + "/" + str.tostring(bB) + "/" + str.tostring(bL) + " · " + str.tostring(bTot, "#.#") + "R (" + str.tostring(bn) + " lệnh)", text_color = bTot >= 0 ? color.lime : color.red, text_size = size.small)
