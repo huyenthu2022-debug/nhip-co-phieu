@@ -12,8 +12,11 @@ Quy tắc, chỉ dùng nến đã đóng của khung lớn (không nhìn trướ
                   gần nhất (RSI < 70). Vùng BÁN ngược lại.
   M15 điểm vào:   trong vùng H1 cùng chiều H4, nến M15 đóng cửa vượt lại EMA20 kèm RSI14 cắt 50
                   hoặc MACD hist đổi dấu theo chiều lệnh.
-  Dừng lỗ sau đáy/đỉnh 12 nến M15 thêm 0,3 ATR (rủi ro giới hạn 1–4 ATR M15).
-  TP1 = 2R (R:R 1:2): chốt một nửa và dời dừng lỗ về giá vào. TP2 = 3R (R:R 1:3).
+  Dừng lỗ sau đáy/đỉnh 6 nến H1 đã đóng thêm 0,2 ATR H1 (rủi ro tối thiểu 1 ATR M15).
+  Giá đi được 1R (1:1) thì dời dừng lỗ về giá vào; chốt lời toàn bộ ở 4R (R:R 1:4).
+
+Cách quản lý lệnh này được chọn sau khi so 40 cách (dừng lỗ M15/H1, lọc D1, chốt 1:2, 1:3, 1:4,
+chốt một nửa, kéo dừng lỗ theo ATR) trên 2 năm nến M15 PAXG: lãi đều ở cả hai nửa dữ liệu, sụt giảm thấp nhất.
 """
 import argparse
 import json
@@ -34,8 +37,8 @@ from indicators import atr, ema, macd_hist, rsi  # noqa: E402
 OUT = Path(__file__).resolve().parent.parent / "web" / "data" / "gold.json"
 VN_TZ = timezone(timedelta(hours=7))
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"}
-RR_TP1, RR_TP2 = 2.0, 3.0
-SWING_BARS, SL_BUF_ATR, MIN_RISK_ATR, MAX_RISK_ATR = 12, 0.3, 1.0, 4.0
+BE_R, TP_R = 1.0, 4.0  # mốc dời dừng lỗ về hoà vốn, mục tiêu chốt lời (theo R)
+H1_SWING, SL_BUF_ATR_H1, MIN_RISK_ATR, MAX_RISK_ATR = 6, 0.2, 1.0, 10.0
 CHART = {"m15": 400, "h1": 360, "h4": 300}
 OHLC = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
@@ -168,19 +171,20 @@ def setups(m15, h4tr, zone):
 
 
 def plan(side, i, m15):
-    """Điểm vào, dừng lỗ, TP1 (1:2), TP2 (1:3) cho tín hiệu ở nến M15 thứ i."""
-    entry, a = float(m15["close"].iloc[i]), float(m15["atr"].iloc[i])
-    win = m15.iloc[max(0, i - SWING_BARS + 1):i + 1]
-    risk = (entry - win["low"].min() + SL_BUF_ATR * a) if side == "MUA" else (win["high"].max() - entry + SL_BUF_ATR * a)
-    risk = float(min(max(risk, MIN_RISK_ATR * a), MAX_RISK_ATR * a))
+    """Điểm vào, dừng lỗ, mốc hoà vốn (1:1) và chốt lời (1:4) cho tín hiệu ở nến M15 thứ i.
+    m15 cần các cột h1lo/h1hi/h1atr (đáy, đỉnh 6 nến H1 và ATR H1 của nến H1 đã đóng)."""
+    r = m15.iloc[i]
+    entry, a = float(r["close"]), float(r["atr"])
+    risk = (entry - r["h1lo"] + SL_BUF_ATR_H1 * r["h1atr"]) if side == "MUA" else (r["h1hi"] - entry + SL_BUF_ATR_H1 * r["h1atr"])
+    risk = float(min(max(risk, MIN_RISK_ATR * a), MAX_RISK_ATR * a)) if not math.isnan(risk) else MIN_RISK_ATR * a
     d = 1 if side == "MUA" else -1
-    return {"side": side, "entry": entry, "sl": entry - d * risk, "tp1": entry + d * RR_TP1 * risk,
-            "tp2": entry + d * RR_TP2 * risk, "risk": risk}
+    return {"side": side, "entry": entry, "sl": entry - d * risk, "be": entry + d * BE_R * risk,
+            "tp": entry + d * TP_R * risk, "risk": risk}
 
 
 def backtest(m15, buy, sell, start=200):
     """Một lệnh mỗi lúc. Cùng nến chạm cả dừng lỗ và mục tiêu thì tính dừng lỗ trước (thận trọng).
-    Kết quả theo R: thua cả lệnh = -1R; chạm TP1 rồi hoà vốn = +1R; chạm TP2 = +2,5R."""
+    Kết quả theo R: dừng lỗ = -1R; đã qua 1:1 rồi quay về giá vào = 0R; chạm mục tiêu = +4R."""
     hi, lo, cl = (m15[k].to_numpy() for k in ("high", "low", "close"))
     t = m15.index
     trades, pos = [], None
@@ -188,23 +192,21 @@ def backtest(m15, buy, sell, start=200):
         if pos is not None:
             d = 1 if pos["side"] == "MUA" else -1
             hit_sl = (lo[i] <= pos["sl"]) if d == 1 else (hi[i] >= pos["sl"])
-            hit_t1 = (hi[i] >= pos["tp1"]) if d == 1 else (lo[i] <= pos["tp1"])
-            hit_t2 = (hi[i] >= pos["tp2"]) if d == 1 else (lo[i] <= pos["tp2"])
+            hit_be = (hi[i] >= pos["be"]) if d == 1 else (lo[i] <= pos["be"])
+            hit_tp = (hi[i] >= pos["tp"]) if d == 1 else (lo[i] <= pos["tp"])
             opposite = sell[i] if d == 1 else buy[i]
             res = None
             if hit_sl:
-                res = (1.0 if pos["t1"] else -1.0), ("Hoà vốn sau TP1" if pos["t1"] else "Dừng lỗ"), pos["sl"]
-            elif hit_t2:
-                res = 0.5 * RR_TP1 + 0.5 * RR_TP2, "Đạt TP2", pos["tp2"]
+                res = (0.0 if pos["t1"] else -1.0), ("Hoà vốn" if pos["t1"] else "Dừng lỗ"), pos["sl"]
+            elif hit_tp:
+                res = TP_R, "Đạt mục tiêu 1:4", pos["tp"]
             else:
-                if hit_t1 and not pos["t1"]:
+                if hit_be and not pos["t1"]:
                     pos["t1"], pos["sl"] = True, pos["entry"]
                 if opposite:
-                    r_now = d * (cl[i] - pos["entry"]) / pos["risk"]
-                    r = 0.5 * RR_TP1 + 0.5 * r_now if pos["t1"] else r_now
-                    res = r, "Tín hiệu ngược chiều", cl[i]
+                    res = d * (cl[i] - pos["entry"]) / pos["risk"], "Tín hiệu ngược chiều", cl[i]
             if res:
-                trades.append({**{k: pos[k] for k in ("side", "entry", "tp1", "tp2")}, "sl": pos["sl0"],
+                trades.append({**{k: pos[k] for k in ("side", "entry", "be", "tp")}, "sl": pos["sl0"],
                                "t_in": pos["t_in"], "t_out": t[i], "exit": float(res[2]),
                                "r": round(float(res[0]), 2), "reason": res[1]})
                 pos = None
@@ -223,7 +225,8 @@ def stats(trades):
     gain, loss = r[r > 0].sum(), -r[r < 0].sum()
     eq = np.cumsum(r)
     dd = float((np.maximum.accumulate(np.r_[0, eq])[1:] - eq).max())
-    return {"n": len(r), "win": round(float((r > 0).mean() * 100), 1), "avg_r": round(float(r.mean()), 2),
+    return {"n": len(r), "win": round(float((r > 0).mean() * 100), 1),
+            "be_pct": round(float((r == 0).mean() * 100), 1), "loss_pct": round(float((r < 0).mean() * 100), 1), "avg_r": round(float(r.mean()), 2),
             "total_r": round(float(r.sum()), 1), "pf": round(float(gain / loss), 2) if loss else None,
             "max_dd_r": round(dd, 1), "from": iso(trades[0]["t_in"])}
 
@@ -248,7 +251,7 @@ def bars(df, n):
 
 
 def trade_out(x):
-    o = {k: r2(x[k]) for k in ("entry", "sl", "tp1", "tp2")}
+    o = {k: r2(x[k]) for k in ("entry", "sl", "be", "tp")}
     o.update(side=x["side"], t_in=iso(x["t_in"]))
     if "t_out" in x:
         o.update(t_out=iso(x["t_out"]), exit=r2(x["exit"]), r=x["r"], reason=x["reason"])
@@ -265,6 +268,9 @@ def build(h1_raw, m15_raw, meta):
     H1, H4, M15 = pd.Timedelta(hours=1), pd.Timedelta(hours=4), pd.Timedelta(minutes=15)
     m15 = add_ind(m15_raw)
     h1 = add_ind(h1_raw)
+    m15["h1lo"] = closed_on(h1["low"].rolling(H1_SWING).min(), H1, m15.index)
+    m15["h1hi"] = closed_on(h1["high"].rolling(H1_SWING).max(), H1, m15.index)
+    m15["h1atr"] = closed_on(h1["atr"], H1, m15.index)
     h4 = add_ind(h1_raw.resample("4h", origin="epoch").agg(OHLC).dropna())
     d1 = h1_raw.resample("1D").agg(OHLC).dropna()
     h4tr_all, zone_all = h4.apply(trend_of, axis=1), h1_zones(h1)
@@ -278,7 +284,7 @@ def build(h1_raw, m15_raw, meta):
     open_pos = None
     if pos:
         d = 1 if pos["side"] == "MUA" else -1
-        open_pos = {**trade_out({**pos, "sl": pos["sl0"]}), "tp1_hit": pos["t1"], "sl_now": r2(pos["sl"]),
+        open_pos = {**trade_out({**pos, "sl": pos["sl0"]}), "be_hit": pos["t1"], "sl_now": r2(pos["sl"]),
                     "r_now": round(float(d * (last["close"] - pos["entry"]) / pos["risk"]), 2)}
     # Tín hiệu mới: trên 4 nến M15 đã đóng gần nhất (bù khi lịch chạy của GitHub bị trễ)
     i_m = last_closed(m15, M15, now)
@@ -307,7 +313,7 @@ def build(h1_raw, m15_raw, meta):
         "price": r2(last["close"]), "day_chg": r2(last["close"] / prev_day * 100 - 100),
         "rsi_m15": r2(lm["rsi"]), "rsi_h1": r2(h1["rsi"].iloc[i_h1]), "atr_m15": r2(lm["atr"]),
         "tf": {"H4": t4, "H1": z1 or "Chưa có vùng", "M15": m15_state}, "status": status,
-        "fresh": fresh, "open": open_pos, "stats": s, "rr": [RR_TP1, RR_TP2],
+        "fresh": fresh, "open": open_pos, "stats": s, "rr": [BE_R, TP_R],
         "trades": [trade_out(x) for x in trades[-30:]][::-1],
         "m15": bars(m15, CHART["m15"]), "h1": bars(h1, CHART["h1"]), "h4": bars(h4, CHART["h4"]),
     }
@@ -324,8 +330,8 @@ def telegram(data, prev):
     f = data["fresh"]
     if f and f["id"] not in sent:
         icon = "🟢" if f["side"] == "MUA" else "🔴"
-        msgs.append((f["id"], f"{icon} XAUUSD {f['side']} {f['entry']}\nDừng lỗ: {f['sl']}\nTP1 (1:2): {f['tp1']}\n"
-                     f"TP2 (1:3): {f['tp2']}\nH4 {data['tf']['H4']} · H1 vùng {data['tf']['H1']} · M15 xác nhận\n"
+        msgs.append((f["id"], f"{icon} XAUUSD {f['side']} {f['entry']}\nDừng lỗ: {f['sl']}\nDời SL về giá vào khi tới (1:1): {f['be']}\n"
+                     f"Chốt lời (1:4): {f['tp']}\nH4 {data['tf']['H4']} · H1 vùng {data['tf']['H1']} · M15 xác nhận\n"
                      f"Nến M15 {f['t_in'].replace('T', ' ')} (giờ VN). Không phải khuyến nghị đầu tư."))
     for t in data["trades"][:3]:
         key = f"x-{t['side']}-{t['t_in']}"

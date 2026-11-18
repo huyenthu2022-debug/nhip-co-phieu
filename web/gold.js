@@ -76,13 +76,13 @@
   }
   function checkAlerts() {
     if (!G || G.demo) return;
-    if (G.fresh) once("sig:" + G.fresh.id, `Tín hiệu ${G.fresh.side} tại ${fmt(G.fresh.entry)}`, `Dừng lỗ ${fmt(G.fresh.sl)} · TP1 ${fmt(G.fresh.tp1)} · TP2 ${fmt(G.fresh.tp2)}`);
+    if (G.fresh) once("sig:" + G.fresh.id, `Tín hiệu ${G.fresh.side} tại ${fmt(G.fresh.entry)}`, `Dừng lỗ ${fmt(G.fresh.sl)} · hoà vốn khi tới ${fmt(G.fresh.be)} · chốt lời ${fmt(G.fresh.tp)}`);
     const o = G.open;
     if (!o || live == null) return;
     const d = o.side === "MUA" ? 1 : -1, id = o.side + o.t_in, past = p => d * (live - p) >= 0;
-    if (d * (live - o.sl_now) <= 0) once(id + ":sl", `${o.tp1_hit ? "Về giá vào (hoà vốn)" : "Chạm dừng lỗ"} ${fmt(o.sl_now)}`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
-    else if (past(o.tp2)) once(id + ":tp2", `Đạt TP2 ${fmt(o.tp2)} (1:3)`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
-    else if (!o.tp1_hit && past(o.tp1)) once(id + ":tp1", `Đạt TP1 ${fmt(o.tp1)} (1:2), dời dừng lỗ về giá vào`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
+    if (d * (live - o.sl_now) <= 0) once(id + ":sl", `${o.be_hit ? "Về giá vào (hoà vốn)" : "Chạm dừng lỗ"} ${fmt(o.sl_now)}`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
+    else if (past(o.tp)) once(id + ":tp", `Đạt mục tiêu ${fmt(o.tp)} (1:4), chốt lời`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
+    else if (!o.be_hit && past(o.be)) once(id + ":be", `Đạt 1:1 tại ${fmt(o.be)}, dời dừng lỗ về giá vào`, `Lệnh ${o.side} từ ${fmt(o.entry)}`);
   }
   $("#goldNotify").addEventListener("click", async () => {
     try { const p = await Notification.requestPermission(); $("#goldNotify").textContent = p === "granted" ? "Đã bật thông báo" : "Trình duyệt chặn thông báo"; }
@@ -115,20 +115,20 @@
         <div style="text-align:right"><div class="label">Lãi/lỗ hiện tại</div><div class="num ${rNow >= 0 ? "up" : "down"}" style="font-size:18px;font-weight:700">${rNow >= 0 ? "+" : ""}${fmt(rNow)}R</div></div></div>
       <div class="lv">
         ${row("Giá vào", t.entry, "")}
-        ${row(o && o.tp1_hit ? "Dừng lỗ (đã dời)" : "Dừng lỗ", sl, `−${fmt(risk)}`, "down")}
-        ${row(`TP1${o && o.tp1_hit ? " ✓" : ""}`, t.tp1, "R:R 1:2", "up")}
-        ${row("TP2", t.tp2, "R:R 1:3", "up")}
+        ${row(o && o.be_hit ? "Dừng lỗ (đã về giá vào)" : "Dừng lỗ", sl, `−${fmt(risk)}`, "down")}
+        ${row(`Dời SL hoà vốn${o && o.be_hit ? " ✓" : ""}`, t.be, "1:1", "")}
+        ${row("Chốt lời", t.tp, "R:R 1:4", "up")}
       </div>
       ${ladder(t, p)}
-      <p class="sig-meta">Vào lúc ${t.t_in.replace("T", " ")} (giờ VN, nến M15). Chạm TP1 chốt một nửa và dời dừng lỗ về giá vào.</p>
+      <p class="sig-meta">Vào lúc ${t.t_in.replace("T", " ")} (giờ VN, nến M15). Giá đi được 1:1 thì dời dừng lỗ về giá vào, chốt toàn bộ ở 1:4.</p>
       ${lastTrade()}`;
   }
   function ladder(t, p) {
-    const lo = Math.min(t.sl, t.tp2), hi = Math.max(t.sl, t.tp2), span = hi - lo || 1;
+    const lo = Math.min(t.sl, t.tp), hi = Math.max(t.sl, t.tp), span = hi - lo || 1;
     const pos = v => Math.max(0, Math.min(100, (v - lo) / span * 100));
     const buy = t.side === "MUA", e = pos(t.entry);
     const bg = buy ? `linear-gradient(90deg, var(--down-soft) 0 ${e}%, var(--up-soft) ${e}% 100%)` : `linear-gradient(90deg, var(--up-soft) 0 ${e}%, var(--down-soft) ${e}% 100%)`;
-    return `<div class="ladder" style="background:${bg}"><span class="tick" style="left:${pos(t.tp1)}%"></span><i style="left:calc(${pos(p)}% - 1px)" title="Giá hiện tại"></i></div>`;
+    return `<div class="ladder" style="background:${bg}"><span class="tick" style="left:${pos(t.be)}%"></span><i style="left:calc(${pos(p)}% - 1px)" title="Giá hiện tại"></i></div>`;
   }
   function lastTrade() {
     const x = G.trades[0];
@@ -136,18 +136,18 @@
   }
   function paintStats() {
     const s = G.stats;
-    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến M15 từ ${s.from.slice(0, 10)} (nguồn miễn phí chỉ có 60 ngày M15), một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
+    $("#gStatSub").textContent = s.n ? `Chạy quy tắc trên nến M15 từ ${s.from.slice(0, 10)} (nguồn miễn phí chỉ có 60 ngày M15), một lệnh mỗi lúc, tính theo R (1R = khoảng cách giá vào tới dừng lỗ). Kiểm định dài hơn trên 2 năm M15 của PAXG/USDT: 207 lệnh, +0,28R mỗi lệnh, hệ số lợi nhuận 1,55, sụt giảm lớn nhất 10R. Kết quả quá khứ không bảo đảm tương lai.` : "Chưa đủ dữ liệu.";
     const card = (l, v, sub = "") => `<div class="stat"><div class="label">${l}</div><div class="v">${v}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
     $("#gStats").innerHTML = s.n ? [
       card("Số lệnh", s.n),
-      card("Tỉ lệ thắng", fmt(s.win, 1) + "%"),
+      card("Thắng/hoà/thua", `${fmt(s.win, 0)}/${fmt(s.be_pct, 0)}/${fmt(s.loss_pct, 0)}%`, "thắng = chạm 1:4, hoà = về giá vào"),
       card("Lợi nhuận TB", (s.avg_r >= 0 ? "+" : "") + fmt(s.avg_r) + "R", "mỗi lệnh"),
       card("Tổng", (s.total_r >= 0 ? "+" : "") + fmt(s.total_r, 1) + "R"),
       card("Hệ số lợi nhuận", s.pf == null ? "–" : fmt(s.pf), "tổng lãi / tổng lỗ"),
       card("Sụt giảm lớn nhất", "−" + fmt(s.max_dd_r, 1) + "R"),
     ].join("") : "";
-    $("#gTrades").innerHTML = `<thead><tr><th>Vào lúc</th><th>Lệnh</th><th class="n">Giá vào</th><th class="n">Dừng lỗ</th><th class="n">TP1</th><th class="n">TP2</th><th>Ra lúc</th><th class="n">Giá ra</th><th>Lý do</th><th class="n">Kết quả</th></tr></thead><tbody>${
-      G.trades.map(x => `<tr><td class="mono">${x.t_in.replace("T", " ")}</td><td>${sidePill(x.side)}</td><td class="n">${fmt(x.entry)}</td><td class="n down">${fmt(x.sl)}</td><td class="n up">${fmt(x.tp1)}</td><td class="n up">${fmt(x.tp2)}</td><td class="mono">${x.t_out.replace("T", " ")}</td><td class="n">${fmt(x.exit)}</td><td>${x.reason}</td><td class="n ${x.r >= 0 ? "up" : "down"}">${x.r > 0 ? "+" : ""}${fmt(x.r)}R</td></tr>`).join("")
+    $("#gTrades").innerHTML = `<thead><tr><th>Vào lúc</th><th>Lệnh</th><th class="n">Giá vào</th><th class="n">Dừng lỗ</th><th class="n">Chốt lời 1:4</th><th>Ra lúc</th><th class="n">Giá ra</th><th>Lý do</th><th class="n">Kết quả</th></tr></thead><tbody>${
+      G.trades.map(x => `<tr><td class="mono">${x.t_in.replace("T", " ")}</td><td>${sidePill(x.side)}</td><td class="n">${fmt(x.entry)}</td><td class="n down">${fmt(x.sl)}</td><td class="n up">${fmt(x.tp)}</td><td class="mono">${x.t_out.replace("T", " ")}</td><td class="n">${fmt(x.exit)}</td><td>${x.reason}</td><td class="n ${x.r >= 0 ? "up" : "down"}">${x.r > 0 ? "+" : ""}${fmt(x.r)}R</td></tr>`).join("")
     }</tbody>`;
   }
   function paintChart() {
@@ -177,7 +177,7 @@
       : { time: ts + off, position: "aboveBar", color: down, shape: "arrowDown", text: "Bán" });
     candles.setMarkers(marks.sort((a, b) => a.time - b.time));
     const t = G.open || G.fresh;
-    if (t) [[G.open ? G.open.sl_now : t.sl, down, "Dừng lỗ"], [t.entry, cssVar("--muted"), "Vào"], [t.tp1, up, "TP1 1:2"], [t.tp2, up, "TP2 1:3"]]
+    if (t) [[G.open ? G.open.sl_now : t.sl, down, "Dừng lỗ"], [t.entry, cssVar("--muted"), "Vào"], [t.be, cssVar("--muted"), "Hoà vốn 1:1"], [t.tp, up, "Chốt lời 1:4"]]
       .forEach(([p, col, title]) => candles.createPriceLine({ price: p, color: col, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title }));
     chart.timeScale().setVisibleLogicalRange({ from: c.t.length - 140, to: c.t.length + 3 });
   }
