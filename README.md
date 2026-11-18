@@ -13,6 +13,8 @@ engine/universe.py     danh sách dự phòng (bản đầy đủ lấy tự đ�
 engine/indicators.py   chỉ báo, điểm sức mạnh, quy tắc mua/bán, backtest
 engine/build.py        tính toán, ghi web/data/signals.json và web/data/charts/<MÃ>.json
 engine/sources.py      lấy giá từ API công khai (DNSE, Vietcap, TCBS)
+engine/gold.py         tín hiệu mua/bán vàng XAUUSD (H1 theo xu hướng H4), ghi web/data/gold.json
+web/gold.js            tab Vàng XAUUSD: biểu đồ TradingView OANDA:XAUUSD, giá trực tiếp, cảnh báo
 web/index.html         giao diện (một file, không cần build)
 .github/workflows/     tự cập nhật hằng ngày và đăng lên GitHub Pages
 ```
@@ -28,6 +30,21 @@ cd web && python -m http.server 8000
 # mở http://localhost:8000
 ```
 
+## Vàng XAUUSD
+
+Tab **Vàng XAUUSD** báo điểm MUA/BÁN trên khung H1, chỉ theo chiều xu hướng H4 (giá > EMA50 > EMA200 là tăng).
+Vào lệnh khi giá hồi về EMA20 rồi bật lại kèm RSI cắt 50 hoặc MACD hist đổi dấu. Dừng lỗ sau đáy/đỉnh 10 nến
+thêm 0,3 ATR; TP1 = 2R (R:R 1:2, chốt một nửa và dời dừng lỗ về giá vào), TP2 = 3R (R:R 1:3).
+Workflow tính lại mỗi 15 phút từ tối Chủ nhật đến tối thứ 6 (giờ UTC). Giá trực tiếp trên trang lấy từ gold-api.com.
+
+Nhận tín hiệu qua Telegram (tuỳ chọn): tạo bot với @BotFather, nhắn cho bot một tin, lấy chat id, rồi thêm hai
+secret `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID` trong Settings → Secrets and variables → Actions.
+
+```bash
+python engine/gold.py          # dữ liệu thật
+python engine/gold.py --demo   # dữ liệu mô phỏng
+```
+
 ## Đưa lên mạng miễn phí (GitHub Pages)
 
 1. Tạo repo GitHub, đẩy toàn bộ thư mục này lên.
@@ -39,6 +56,6 @@ Nếu workflow lỗi khi lấy dữ liệu, chạy `build.py` trên máy ở VN 
 
 ## Hướng phát triển
 
-- Cảnh báo realtime qua Telegram/Zalo khi có tín hiệu mới (cần một máy chủ chạy liên tục).
+- Cảnh báo Telegram cho cổ phiếu (vàng đã có), Zalo.
 - Khung giờ (H1) cho động lượng đa khung, cần dữ liệu intraday.
 - Danh mục mẫu theo chủ đề, tín hiệu phái sinh VN30F.
