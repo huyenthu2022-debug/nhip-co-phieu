@@ -156,33 +156,55 @@ def run(name, pkw, filt, skw, show_it=True):
         show(name, *res)
     return res
 
-F = {
-    "mọi cú quét 2–3 đáy": lambda m, s, t4, z1, c, d: s != 0,
-    "+ phân kỳ RSI": lambda m, s, t4, z1, c, d: (s != 0) & d,
-    "+ phân kỳ + theo H4": lambda m, s, t4, z1, c, d: (s != 0) & d & (s == t4),
-    "+ phân kỳ + không ngược H4": lambda m, s, t4, z1, c, d: (s != 0) & d & (s != -t4),
-    "+ phân kỳ + theo H4 + vùng H1": lambda m, s, t4, z1, c, d: (s != 0) & d & (s == t4) & (s == z1),
-    "+ phân kỳ + bỏ 21h–3h": lambda m, s, t4, z1, c, d: (s != 0) & d & hourok(m),
-    "+ phân kỳ + theo H4 + bỏ 21h–3h": lambda m, s, t4, z1, c, d: (s != 0) & d & (s == t4) & hourok(m),
-    "+ phân kỳ + không ngược H4 + bỏ 21h–3h": lambda m, s, t4, z1, c, d: (s != 0) & d & (s != -t4) & hourok(m),
-    "chỉ 3 đáy/đỉnh": lambda m, s, t4, z1, c, d: (s != 0) & (c == 3),
-    "3 đáy/đỉnh + phân kỳ": lambda m, s, t4, z1, c, d: (s != 0) & (c == 3) & d,
-    "3 đáy/đỉnh + phân kỳ + không ngược H4": lambda m, s, t4, z1, c, d: (s != 0) & (c == 3) & d & (s != -t4),
-}
+# Tín hiệu hệ 1 hiện tại (quét đáy/đỉnh 20 nến + H4 + vùng H1 + RSI≤50 + giờ) dạng side/wick để so cùng cách vào
+def cur(D):
+    m, t4, z1 = D
+    hh = gold.closed_on(pd.Series(z1, index=m.index), pd.Timedelta(0), m.index)  # giữ nguyên
+    ok = hourok(m)
+    c, o, r = m["close"].to_numpy(), m["open"].to_numpy(), m["rsi"].to_numpy()
+    b = (t4 == 1) & (z1 == 1) & (m["wick_lo"] < m["liq_lo"]).to_numpy() & (c > m["liq_lo"].to_numpy()) & (c > o) & (r <= 50) & ok
+    s_ = (t4 == -1) & (z1 == -1) & (m["wick_hi"] > m["liq_hi"]).to_numpy() & (c < m["liq_hi"].to_numpy()) & (c < o) & (r >= 50) & ok
+    return np.where(b, 1, np.where(s_, -1, 0)), np.where(b, m["wick_lo"], m["wick_hi"]).astype(float)
+
+def run2(name, build, skw):
+    res = []
+    for D, start in ((P, 2000), (G, 200)):
+        side, wick = build(D)
+        res.append(met(sim(D[0], side, wick, start, **skw)))
+    show(name, *res)
+
+def patf(D, f, **kw):
+    m, t4, z1 = D
+    s_, w, c, d = pat(D, str(sorted({**base, **kw}.items())), **{**base, **kw})
+    return np.where(f(m, s_, t4, z1, c, d), s_, 0), w
+
 base = dict(K=3, W=96, tol_atr=0.6, div_min=2.0, min_gap=5)
-print("##### A. Bộ lọc (vào ngay giá đóng cửa, SL 10–15, hoà vốn 1R + kéo SL từ 3R, tối đa 8R)")
-for k, f in F.items():
-    run(k, base, f, {})
-print("##### B. Cách vào/thoát với 3 bộ lọc tiêu biểu")
-for fk in ("+ phân kỳ RSI", "+ phân kỳ + không ngược H4", "+ phân kỳ + không ngược H4 + bỏ 21h–3h", "+ phân kỳ + theo H4"):
-    for ek, ekw in {"vào ngay, chốt 1:2": dict(tp=2, be=None, trail=None), "vào ngay, chốt 1:3": dict(tp=3, be=None, trail=None),
-                    "vào ngay, hoà vốn 1R, chốt 1:3": dict(tp=3, trail=None), "lệnh chờ 50%, kéo SL": dict(pull=0.5),
-                    "lệnh chờ 30%, kéo SL": dict(pull=0.3)}.items():
-        run(f"{fk} · {ek}", base, F[fk], ekw)
-print("##### C. Độ nhạy tham số nhận diện (bộ lọc: phân kỳ + không ngược H4)")
-for k, v in [("K", 2), ("K", 5), ("W", 48), ("W", 192), ("tol_atr", 0.3), ("tol_atr", 1.0), ("div_min", 0.0), ("div_min", 5.0), ("min_gap", 10)]:
-    run(f"{k}={v}", {**base, k: v}, F["+ phân kỳ + không ngược H4"], {})
-print("##### D. SL khác (bộ lọc: phân kỳ + không ngược H4)")
-for mn, mx in ((10, 15), (8, 15), (10, 20), (12, 15)):
-    run(f"SL {mn}–{mx}", base, F["+ phân kỳ + không ngược H4"], dict(minr=mn, maxr=mx))
+TR = {}
+NOW = dict()                      # vào ngay, kéo SL
+FIX3 = dict(tp=3, be=None, trail=None)
+print("##### E. Vào SỚM (ngay giá đóng cửa nến quét), SL sát râu")
+for sl in ((10, 15), (8, 15), (15, 20)):
+    run2(f"Hệ 1 hiện tại, vào ngay, SL {sl[0]}–{sl[1]}, kéo SL", cur, dict(minr=sl[0], maxr=sl[1]))
+run2("Hệ 1 hiện tại, lệnh chờ 50% (đang dùng), SL 15–20", cur, dict(minr=15, maxr=20, pull=.5))
+pv = lambda m, s, t4, z1, c, d: (s != 0) & d & (s == t4) & hourok(m)
+pv0 = lambda m, s, t4, z1, c, d: (s != 0) & d & (s == t4) & hourok(m)
+for kw, nm in ((dict(), "phân kỳ ≥2"), (dict(div_min=0.0), "phân kỳ ≥0"), (dict(tol_atr=1.0), "phân kỳ ≥2, dung sai 1 ATR"), (dict(div_min=0.0, tol_atr=1.0), "phân kỳ ≥0, dung sai 1 ATR")):
+    for sl in ((10, 15), (8, 15)):
+        run2(f"2–3 đáy + {nm} + H4 + giờ, SL {sl[0]}–{sl[1]}, kéo SL", lambda D, kw=kw: patf(D, pv, **kw), dict(minr=sl[0], maxr=sl[1]))
+    run2(f"2–3 đáy + {nm} + H4 + giờ, SL 10–15, chốt 1:3", lambda D, kw=kw: patf(D, pv, **kw), dict(minr=10, maxr=15, **FIX3))
+rsi_f = lambda m, s, t4, z1, c, d: (s != 0) & (s == t4) & hourok(m) & np.where(s > 0, m["rsi"].to_numpy() <= 50, m["rsi"].to_numpy() >= 50)
+run2("2–3 đáy + RSI≤50 (không cần phân kỳ) + H4 + giờ, SL 10–15", lambda D: patf(D, rsi_f), dict())
+zone_f = lambda m, s, t4, z1, c, d: (s != 0) & (s == t4) & (s == z1) & hourok(m)
+run2("2–3 đáy + H4 + vùng H1 + giờ (không cần phân kỳ), SL 10–15", lambda D: patf(D, zone_f), dict())
+def union(D, f=pv, kw=dict(div_min=0.0)):
+    a, wa = cur(D); b, wb = patf(D, f, **kw)
+    return np.where(a != 0, a, b), np.where(a != 0, wa, wb)
+run2("GỘP: hệ 1 hiện tại HOẶC 2–3 đáy+phân kỳ+H4+giờ, vào ngay, SL 10–15", union, dict())
+run2("GỘP: … SL 8–15", union, dict(minr=8, maxr=15))
+run2("GỘP: … SL 10–15, chốt 1:3", union, dict(**FIX3))
+def union_div(D):
+    a, wa = cur(D); m = D[0]
+    s_, w, c, d = pat(D, str(sorted(base.items())), **base)
+    keep = (a != 0)
+    return np.where(keep, a, 0), wa
 print("##### Tham chiếu: hệ 1 hiện tại (quét + H4 + H1 + RSI≤50 + giờ, lệnh chờ, SL 15–20) ≈ 101 lệnh, +0,67R sau phí, pf 2,84")
