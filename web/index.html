@@ -190,6 +190,24 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
   #chart { height: 280px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* Vàng XAUUSD */
+.gold-head { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 24px; }
+.gold-price { font: 700 32px var(--mono); letter-spacing: -0.02em; }
+.gold-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; margin-top: 14px; }
+@media (max-width: 900px) { .gold-grid { grid-template-columns: minmax(0, 1fr); } .gold-grid .gsig { order: -1; } }
+.tv-box { height: 560px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+@media (max-width: 600px) { .tv-box { height: 440px; } }
+.tv-box .tradingview-widget-container, .tv-box .tradingview-widget-container__widget { height: 100%; width: 100%; }
+.gsig { display: grid; gap: 12px; align-content: start; }
+.gsig .side { font: 800 26px var(--display); }
+.gsig .lv { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 12px; font-size: 13px; align-items: baseline; }
+.gsig .lv .v { font: 600 15px var(--mono); text-align: right; }
+.gsig .lv .rr { color: var(--muted); font-size: 12px; text-align: right; }
+#goldChart { height: 420px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { font: 600 12px var(--body); padding: 5px 10px; border: 0; background: var(--surface); color: var(--muted); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
 </style>
 
 <header class="top">
@@ -204,6 +222,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
       <button role="tab" data-tab="boloc">Bộ lọc</button>
       <button role="tab" data-tab="tinhieu">Tín hiệu</button>
       <button role="tab" data-tab="nhatky">Nhật ký giao dịch</button>
+      <button role="tab" data-tab="vang">Vàng XAUUSD</button>
       <button role="tab" data-tab="phuongphap">Phương pháp</button>
     </nav>
     <div class="asof"><span id="live" class="live" data-state="off">Giá trực tiếp</span><span id="asof">Đang tải dữ liệu…</span></div>
@@ -292,6 +311,40 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
   </section>
 
   <!-- PHƯƠNG PHÁP -->
+  <!-- VÀNG XAUUSD -->
+  <section data-view="vang" hidden>
+    <div class="section-head"><div><h2>Vàng XAUUSD · điểm mua bán</h2><p class="sub">Hệ 3 khung: H4 xác định xu hướng, H1 xem xét vùng hồi, M15 vào lệnh ngay khi nến quét thanh khoản đóng cửa (quét đáy/đỉnh 20 nến, hoặc quét 2–3 đáy/đỉnh cũ có phân kỳ RSI). Dừng lỗ 10–15 giá sát râu nến quét, dời về hoà vốn ở 1:1, kéo theo lãi từ 1:3, chốt tối đa 1:8. Tín hiệu tính realtime khi trang mở, giá trực tiếp cập nhật mỗi 15 giây.</p></div>
+      <button class="btn" id="goldNotify">Bật thông báo</button></div>
+    <div class="demo-band" id="gDemo" hidden style="margin-top:10px;border-radius:8px"><div style="padding:8px 12px"><b>Dữ liệu mô phỏng.</b> Tín hiệu vàng bên dưới là dữ liệu thử, chưa phải giá thật.</div></div>
+    <div class="panel" style="margin-top:12px">
+      <div class="gold-head">
+        <div><div class="label">XAUUSD giao ngay</div><div class="gold-price" id="gPrice">–</div></div>
+        <div><div class="label">So với hôm qua</div><div class="num" id="gChg" style="font-size:16px;font-weight:600">–</div></div>
+        <div><div class="label">H4 xu hướng · H1 vùng · M15</div><div id="gTrend" style="display:flex;gap:6px;margin-top:3px"></div></div>
+        <div><div class="label">RSI M15 · RSI H1</div><div class="num" id="gInd" style="font-size:15px">–</div></div>
+        <div style="margin-left:auto;text-align:right"><span id="gLive" class="live" data-state="off">Giá trực tiếp</span><div class="sub" id="gAsof"></div></div>
+      </div>
+    </div>
+    <div class="gold-grid">
+      <div class="tv-box" id="tvBox"></div>
+      <div class="panel gsig" id="gSignal"><div class="empty">Đang tải tín hiệu…</div></div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <div class="section-head" style="margin-bottom:10px"><div><h2>Biểu đồ tín hiệu</h2><p class="sub">Mũi tên là điểm vào lệnh của hệ thống, đường đứt là dừng lỗ và mục tiêu của lệnh đang mở. Xanh dương EMA20, cam EMA50, tím EMA200.</p></div>
+        <div class="seg" id="gTf"><button data-tf="m15" aria-pressed="true">M15</button><button data-tf="h1" aria-pressed="false">H1</button><button data-tf="h4" aria-pressed="false">H4</button></div></div>
+      <div id="goldChart"></div>
+    </div>
+    <div class="section-head" style="margin:22px 0 10px"><div><h2>Hệ 2 · Phá đỉnh/đáy 20 nến H1 theo H4</h2><p class="sub">Chạy song song với hệ 1. Nến H1 đóng cửa vượt đỉnh (thủng đáy) 20 nến H1 trước đó cùng chiều xu hướng H4 thì vào ngay; dừng lỗ 2 ATR H1; tới 1:1 dời SL về giá vào, từ 1:3 kéo SL cách 1,5R, chốt hết ở 1:8. Kiểm định 2 năm PAXG: 167 lệnh, +0,69R mỗi lệnh sau phí, hệ số lợi nhuận 2,54; kiểm chứng 2 năm GC=F: +78R.</p></div></div>
+    <div class="gold-grid" style="margin-top:0">
+      <div><div class="stats" id="gBoStats"></div><div class="table-wrap" style="margin-top:14px"><table id="gBoTrades"></table></div></div>
+      <div class="panel gsig" id="gBo"><div class="empty">Đang tải…</div></div>
+    </div>
+    <div class="section-head" style="margin:22px 0 10px"><div><h2>Hệ 1 · Quét thanh khoản: kết quả kiểm định</h2><p class="sub" id="gStatSub"></p></div></div>
+    <div class="stats" id="gStats"></div>
+    <div class="table-wrap" style="margin-top:14px"><table id="gTrades"></table></div>
+    <p class="sub" style="margin-top:12px">Biểu đồ TradingView là OANDA:XAUUSD. Tín hiệu tính trên nến của vàng COMEX dời theo giá giao ngay, nên mức giá có thể lệch vài giá so với sàn bạn giao dịch. Đây là tín hiệu kỹ thuật tự động, không phải khuyến nghị đầu tư. Vàng biến động mạnh, hãy luôn đặt dừng lỗ và kiểm soát khối lượng.</p>
+  </section>
+
   <section data-view="phuongphap" hidden>
     <div class="panel">
       <h2>Cách tính các chỉ số</h2>
@@ -352,7 +405,7 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
     }).join("")}</span>`;
 
   /* ---------- Tabs ---------- */
-  const TABS = ["tongquan", "nganh", "boloc", "tinhieu", "nhatky", "phuongphap"];
+  const TABS = ["tongquan", "nganh", "boloc", "tinhieu", "nhatky", "vang", "phuongphap"];
   function show(tab) {
     if (!TABS.includes(tab)) tab = "tongquan";
     $$("nav.tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
@@ -782,7 +835,10 @@ footer p { max-width: 75ch; margin: 0 0 6px; }
   }
   fetch("data/signals.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(boot).catch(err => {
     $("#asof").textContent = "Không tải được dữ liệu";
-    $("main").innerHTML = `<div class="panel empty">Không đọc được data/signals.json (${err.message}). Hãy chạy <span class="mono">python engine/build.py</span> để tạo dữ liệu.</div>`;
+    $$("main section:not([data-view=vang])").forEach(s => s.hidden = true);
+    show("vang");
+    $("main").insertAdjacentHTML("afterbegin", `<div class="panel empty">Không đọc được data/signals.json (${err.message}). Hãy chạy <span class="mono">python engine/build.py</span> để tạo dữ liệu.</div>`);
   });
 })();
 </script>
+<script src="gold.js"></script>

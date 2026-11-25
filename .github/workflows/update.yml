@@ -1,25 +1,43 @@
-# Tính lại tín hiệu mỗi 10 phút trong phiên và sau giờ đóng cửa (thứ 2–6), rồi đăng lên GitHub Pages.
+# Tính lại tín hiệu cổ phiếu mỗi 10 phút trong phiên và sau giờ đóng cửa (thứ 2–6),
+# tín hiệu vàng XAUUSD mỗi 15 phút suốt tuần giao dịch vàng, rồi đăng lên GitHub Pages.
 name: Cập nhật tín hiệu
 on:
   schedule:
-    - cron: "7-59/10 2-7 * * 1-5"  # mỗi 10 phút trong phiên (lệch khỏi đầu giờ vì GitHub hay bỏ lượt lúc đó)
-    - cron: "45 8 * * 1-5"       # bản chốt sau giờ đóng cửa
+    - cron: "7-59/10 2-7 * * 1-5"      # cổ phiếu + vàng: mỗi 10 phút trong phiên (lệch khỏi đầu giờ vì GitHub hay bỏ lượt lúc đó)
+    - cron: "45 8 * * 1-5"             # cổ phiếu + vàng: bản chốt sau giờ đóng cửa
+    - cron: "2-59/15 0-1,9-23 * * 1-5" # chỉ vàng
+    - cron: "2-32/15 8 * * 1-5"        # chỉ vàng
+    - cron: "2-59/15 22-23 * * 0"      # chỉ vàng: thị trường vàng mở cửa tối Chủ nhật (giờ UTC)
   workflow_dispatch:
 permissions:
   contents: write
   pages: write
   id-token: write
-concurrency: { group: pages, cancel-in-progress: true }
+# Không huỷ lượt đang chạy: lượt chỉ-vàng không được cắt ngang lượt tính cổ phiếu.
+concurrency: { group: pages, cancel-in-progress: false }
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      STOCKS: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '7-59/10 2-7 * * 1-5' || github.event.schedule == '45 8 * * 1-5' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install -r requirements.txt
-      - run: python engine/build.py
+      - name: Lấy bản dữ liệu gần nhất từ nhánh data
+        run: |
+          if git fetch -q --depth 1 origin data; then git --work-tree=web/data checkout FETCH_HEAD -- . && git reset -q; fi
+      - name: Tín hiệu cổ phiếu
+        if: env.STOCKS == 'true'
+        run: python engine/build.py
+      - name: Tín hiệu vàng XAUUSD
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python engine/gold.py
       - name: Lưu bản dữ liệu vào nhánh data
         run: |
           cd web/data
@@ -31,6 +49,7 @@ jobs:
         run: |
           mkdir -p _site/data
           { echo '<!doctype html><html lang="vi"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>'; cat web/index.html; echo '</body></html>'; } > _site/index.html
+          cp web/gold.js _site/
           cp -r web/data/. _site/data/
       - uses: actions/upload-pages-artifact@v3
         with: { path: _site }
