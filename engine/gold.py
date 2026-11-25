@@ -10,18 +10,20 @@ Quy tắc, chỉ dùng nến đã đóng của khung lớn (không nhìn trướ
   H4  xu hướng:   Tăng khi giá > EMA50 > EMA200, Giảm khi ngược lại, còn lại đứng ngoài.
   H1  xem xét:    Vùng MUA khi EMA20 > EMA50, giá còn trên EMA50 và đã hồi chạm EMA20 trong 3 nến H1
                   gần nhất (RSI < 70). Vùng BÁN ngược lại.
-  M15 điểm vào:   chờ giá QUÉT THANH KHOẢN. Trong vùng H1 cùng chiều H4, nến M15 (hiện tại hoặc ngay trước)
-                  chọc thủng đáy thấp nhất của 20 nến M15 trước đó (nơi đặt dừng lỗ của nhiều người), rồi
-                  nến hiện tại đóng cửa quay lại trên mức đó và là nến tăng: MUA. BÁN ngược lại với đỉnh.
-  Lọc chất lượng: MUA chỉ khi RSI M15 <= 50 (BÁN khi >= 50) và bỏ nến mở từ 21h đến trước 3h giờ VN.
-  Dừng lỗ sau râu nến quét thêm 0,1 ATR M15, tối thiểu 15 giá; bỏ lệnh nếu dừng lỗ cần rộng hơn 20 giá
-  (15 và 20 giá tính ở mức vàng 3.850, tự co giãn theo giá).
-  Giá đi được 1R (1:1) thì dời dừng lỗ về giá vào; chốt lời toàn bộ ở 3R (R:R 1:3).
+  M15 điểm vào:   VÀO NGAY ở giá đóng cửa nến quét thanh khoản (không chờ giá chạy), một trong hai kiểu:
+    A. Quét đáy 20 nến: trong vùng H1 cùng chiều H4, nến M15 (hiện tại hoặc ngay trước) chọc thủng đáy thấp
+       nhất của 20 nến trước, nến hiện tại đóng cửa quay lại trên mức đó và là nến tăng, RSI M15 <= 50: MUA.
+    B. Quét 2–3 đáy + phân kỳ RSI: có một đáy xoay chiều (thấp nhất 3 nến mỗi bên, trong 24 giờ, cách ít nhất
+       5 nến) chưa bị phá; nến quét chọc xuống dưới nó không quá 0,6 ATR rồi đóng cửa quay lên trên, là nến tăng,
+       RSI ở nến quét cao hơn RSI ở đáy cũ (phân kỳ tăng), cùng chiều H4: MUA. Có thêm đáy cũ ngang bằng nữa thì
+       gọi là 3 đáy. BÁN ngược lại với đỉnh.
+  Bỏ nến mở từ 21h đến trước 3h giờ VN. Dừng lỗ sau râu nến quét thêm 0,1 ATR M15, tối thiểu 10 giá; bỏ lệnh
+  nếu dừng lỗ cần rộng hơn 15 giá (10 và 15 giá tính ở mức vàng 3.850, tự co giãn theo giá).
+  Tới 1R dời dừng lỗ về giá vào; từ 3R kéo dừng lỗ luôn cách mức lãi cao nhất 1,5R; chốt hết ở 8R.
 
-Được chọn sau khi so khoảng 60 cách (dừng lỗ M15/H1/cố định, lọc D1, chốt 1:2 đến 1:5, chốt một nửa,
-kéo dừng lỗ, vào lệnh theo động lượng hoặc sau quét thanh khoản) trên 2 năm nến M15 PAXG/USDT:
-Chốt 1:3 có lọc chất lượng: 148 lệnh, +0,37R mỗi lệnh, hệ số lợi nhuận 1,93, sụt giảm lớn nhất 6R
-(chưa lọc: 197 lệnh, +0,21R, hệ số 1,48, sụt giảm 9R).
+Kiểm định 2 năm nến M15 PAXG/USDT, tính cả phí chênh lệch 0,35 giá mỗi lệnh: 232 lệnh (10 lệnh/tháng),
+thắng 28%, hoà 29%, thua 43%, lệnh thắng trung bình +3,4R, +0,49R mỗi lệnh, hệ số lợi nhuận 2,09,
+sụt giảm lớn nhất 11,5R, 8/9 quý có lãi. Riêng kiểu B (2–3 đáy + phân kỳ): 101 lệnh, +0,61R, hệ số 2,49.
 """
 import argparse
 import json
@@ -45,11 +47,11 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 BE_R = 1.0                     # tới 1R: dời dừng lỗ về giá vào
 TRAIL_START, TRAIL_GAP = 3.0, 1.5  # tới 3R: kéo dừng lỗ theo giá, luôn cách đỉnh lãi 1,5R
 TP_R = 8.0                     # chốt toàn bộ khi đạt tối đa 8R
-ENTRY_PULLBACK, ENTRY_WAIT = 0.5, 4  # lệnh chờ tại giá hồi 50% về râu nến quét, hiệu lực 4 nến M15
 SWEEP_LOOK, SWEEP_RECENT, SL_BUF_ATR = 20, 1, 0.1   # đáy/đỉnh 20 nến M15; nến quét: hiện tại hoặc ngay trước
-REF_PRICE, MIN_RISK_USD, MAX_RISK_USD = 3850.0, 15.0, 20.0
+REF_PRICE, MIN_RISK_USD, MAX_RISK_USD = 3850.0, 10.0, 15.0  # dừng lỗ 10–15 giá ở mức 3.850, co giãn theo giá
 RSI_MAX = 50                       # lọc chất lượng: MUA khi RSI M15 <= 50 (giá vừa hồi thật), BÁN khi >= 50
-SKIP_HOURS_VN = {21, 22, 23, 0, 1, 2}  # bỏ nến M15 mở từ 21h đến trước 3h sáng giờ VN (Mỹ mở cửa, cuối phiên Mỹ)  # dừng lỗ 15–20 giá ở mức 3.850, co giãn theo giá
+SKIP_HOURS_VN = {21, 22, 23, 0, 1, 2}  # bỏ nến M15 mở từ 21h đến trước 3h sáng giờ VN (Mỹ mở cửa, cuối phiên Mỹ)
+PIV_K, PIV_WIN, PIV_TOL_ATR, PIV_GAP = 3, 96, 0.6, 5  # đáy/đỉnh xoay chiều: 3 nến mỗi bên, trong 96 nến, quét sâu tối đa 0,6 ATR
 CHART = {"m15": 400, "h1": 360, "h4": 300}
 OHLC = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
@@ -182,63 +184,90 @@ def add_sweep(m15):
     return m15
 
 
-def risk_of(side, row):
-    """Khoảng dừng lỗ (giá) và giới hạn 15–20 giá quy theo giá hiện tại."""
-    scale = row["close"] / REF_PRICE
-    raw = (row["close"] - row["wick_lo"] if side == "MUA" else row["wick_hi"] - row["close"]) + SL_BUF_ATR * row["atr"]
-    return max(raw, MIN_RISK_USD * scale), MAX_RISK_USD * scale
+def patterns(m15):
+    """Quét 2–3 đáy/đỉnh: nến hiện tại (hoặc trước) chọc thủng một đáy xoay chiều còn nguyên không quá PIV_TOL_ATR,
+    nến hiện tại đóng cửa quay lại và cùng màu chiều lệnh. Trả về chiều (1/-1/0), râu quét, mức đáy/đỉnh bị quét,
+    số đáy (2 hoặc 3), có phân kỳ RSI hay không, và đáy/đỉnh còn nguyên gần giá nhất ở nến cuối (để theo dõi)."""
+    H, L, C, O = (m15[k].to_numpy() for k in ("high", "low", "close", "open"))
+    R, A = m15["rsi"].to_numpy(), m15["atr"].to_numpy()
+    K, W, gap = PIV_K, PIV_WIN, PIV_GAP
+    n = len(m15)
+    side, wick, lvl = np.zeros(n, int), np.full(n, np.nan), np.full(n, np.nan)
+    cnt, div = np.zeros(n, int), np.zeros(n, bool)
+    lows, highs = [], []  # (vị trí, giá, RSI) của đáy/đỉnh xoay chiều đã xác nhận
+    for i in range(2 * K + 1, n):
+        j = i - K  # nến i mới xác nhận được xoay chiều tại j (cần K nến mỗi bên)
+        if L[j] == L[j - K:j + K + 1].min():
+            lows.append((j, L[j], R[j]))
+        if H[j] == H[j - K:j + K + 1].max():
+            highs.append((j, H[j], R[j]))
+        lows = [p for p in lows if i - p[0] <= W]
+        highs = [p for p in highs if i - p[0] <= W]
+        tol = PIV_TOL_ATR * A[i]
+        wl, wh = min(L[i], L[i - 1]), max(H[i], H[i - 1])
+        rl, rh = min(R[i], R[i - 1]), max(R[i], R[i - 1])
+        if C[i] > O[i]:
+            cand = [p for p in lows if i - p[0] >= gap and L[p[0] + 1:i - 1].min(initial=np.inf) > p[1]
+                    and wl < p[1] <= wl + tol and C[i] > p[1]]
+            if cand:
+                p1 = min(cand, key=lambda p: p[1])
+                peers = [q for q in lows if q[0] < p1[0] and abs(q[1] - p1[1]) <= tol
+                         and L[q[0] + 1:i - 1].min(initial=np.inf) >= p1[1] - tol and q[1] > wl]
+                side[i], wick[i], lvl[i], cnt[i], div[i] = 1, wl, p1[1], 3 if peers else 2, rl > p1[2]
+                continue
+        if C[i] < O[i]:
+            cand = [p for p in highs if i - p[0] >= gap and H[p[0] + 1:i - 1].max(initial=-np.inf) < p[1]
+                    and wh > p[1] >= wh - tol and C[i] < p[1]]
+            if cand:
+                p1 = max(cand, key=lambda p: p[1])
+                peers = [q for q in highs if q[0] < p1[0] and abs(q[1] - p1[1]) <= tol
+                         and H[q[0] + 1:i - 1].max(initial=-np.inf) <= p1[1] + tol and q[1] < wh]
+                side[i], wick[i], lvl[i], cnt[i], div[i] = -1, wh, p1[1], 3 if peers else 2, rh < p1[2]
+    last = C[-1] if n else np.nan
+    lo_ok = [p[1] for p in lows if L[p[0] + 1:].min(initial=np.inf) > p[1] and p[1] < last]
+    hi_ok = [p[1] for p in highs if H[p[0] + 1:].max(initial=-np.inf) < p[1] and p[1] > last]
+    watch = {"lo": max(lo_ok) if lo_ok else None, "hi": min(hi_ok) if hi_ok else None}
+    return side, wick, lvl, cnt, div, watch
 
 
 def setups(m15, h4tr, zone):
-    c, o = m15["close"], m15["open"]
-    hour_ok = ~pd.Series((m15.index + pd.Timedelta(hours=7)).hour, index=m15.index).isin(SKIP_HOURS_VN)
-    buy = (h4tr == "Tăng") & (zone == "MUA") & (m15["wick_lo"] < m15["liq_lo"]) & (c > m15["liq_lo"]) & (c > o) \
-        & (m15["rsi"] <= RSI_MAX) & hour_ok
-    sell = (h4tr == "Giảm") & (zone == "BÁN") & (m15["wick_hi"] > m15["liq_hi"]) & (c < m15["liq_hi"]) & (c < o) \
-        & (m15["rsi"] >= 100 - RSI_MAX) & hour_ok
-    buy, sell = buy.fillna(False).to_numpy(copy=True), sell.fillna(False).to_numpy(copy=True)
-    # Bỏ tín hiệu cần dừng lỗ rộng hơn 20 giá
-    for arr, side in ((buy, "MUA"), (sell, "BÁN")):
-        for i in np.flatnonzero(arr):
-            r, mx = risk_of(side, m15.iloc[i])
-            if r > mx:
-                arr[i] = False
-    return buy, sell
+    """Tín hiệu M15: kiểu A (quét đáy/đỉnh 20 nến, ưu tiên) hoặc kiểu B (quét 2–3 đáy/đỉnh + phân kỳ RSI).
+    Trả về chiều, râu quét, mức bị quét, tên kiểu, khoảng dừng lỗ; đã bỏ tín hiệu cần dừng lỗ rộng hơn 15 giá."""
+    c, o, rs, at = (m15[k].to_numpy() for k in ("close", "open", "rsi", "atr"))
+    llo, lhi, wlo, whi = (m15[k].to_numpy() for k in ("liq_lo", "liq_hi", "wick_lo", "wick_hi"))
+    hour_ok = ~pd.Series((m15.index + pd.Timedelta(hours=7)).hour).isin(SKIP_HOURS_VN).to_numpy()
+    t4, z = np.asarray(h4tr), np.asarray(zone)
+    with np.errstate(invalid="ignore"):
+        ab = (t4 == "Tăng") & (z == "MUA") & (wlo < llo) & (c > llo) & (c > o) & (rs <= RSI_MAX) & hour_ok
+        as_ = (t4 == "Giảm") & (z == "BÁN") & (whi > lhi) & (c < lhi) & (c < o) & (rs >= 100 - RSI_MAX) & hour_ok
+    ps, pw, pl, pc, pdv, watch = patterns(m15)
+    tsign = np.where(t4 == "Tăng", 1, np.where(t4 == "Giảm", -1, 0))
+    pb = (ps != 0) & pdv & (ps == tsign) & hour_ok
+    side = np.where(ab, 1, np.where(as_, -1, np.where(pb, ps, 0)))
+    wick = np.where(ab, wlo, np.where(as_, whi, pw))
+    lvl = np.where(ab, llo, np.where(as_, lhi, pl))
+    kind = np.where(ab, "Quét đáy 20 nến", np.where(as_, "Quét đỉnh 20 nến", np.where(
+        ps > 0, np.where(pc == 3, "Quét 3 đáy + phân kỳ RSI", "Quét 2 đáy + phân kỳ RSI"),
+        np.where(pc == 3, "Quét 3 đỉnh + phân kỳ RSI", "Quét 2 đỉnh + phân kỳ RSI"))))
+    scale = c / REF_PRICE
+    with np.errstate(invalid="ignore"):
+        risk = np.maximum(side * (c - wick) + SL_BUF_ATR * at, MIN_RISK_USD * scale)
+        side = np.where((side != 0) & (risk <= MAX_RISK_USD * scale), side, 0)
+    return side, wick, lvl, kind, risk, watch
 
 
-def plan(side, i, m15):
-    """Lệnh chờ cho tín hiệu ở nến M15 thứ i: giá vào hồi 50% từ giá đóng cửa về râu nến quét,
-    dừng lỗ sau râu (tối thiểu 15 giá), hoà vốn 1:1, bắt đầu kéo SL ở 1:3, chốt tối đa 1:8."""
-    r = m15.iloc[i]
-    d = 1 if side == "MUA" else -1
-    close, wick = float(r["close"]), float(r["wick_lo"] if d == 1 else r["wick_hi"])
-    entry = close - ENTRY_PULLBACK * (close - wick)
-    risk = float(max(d * (entry - wick) + SL_BUF_ATR * r["atr"], MIN_RISK_USD * close / REF_PRICE))
-    return {"side": side, "entry": entry, "sl": entry - d * risk, "be": entry + d * BE_R * risk,
-            "trail": entry + d * TRAIL_START * risk, "tp": entry + d * TP_R * risk, "risk": risk,
-            "liq": float(r["liq_lo"] if d == 1 else r["liq_hi"]), "signal": close}
-
-
-def backtest(m15, buy, sell, start=200):
-    """Một lệnh mỗi lúc. Tín hiệu đặt lệnh chờ; khớp khi giá hồi về, huỷ sau ENTRY_WAIT nến hoặc khi có tín hiệu ngược.
-    Cùng nến chạm cả dừng lỗ và mục tiêu thì tính dừng lỗ trước; nến khớp lệnh mà chạm luôn dừng lỗ thì tính thua.
+def backtest(m15, side, lvl, kind, risk, start=200):
+    """Một lệnh mỗi lúc, vào ngay ở giá đóng cửa nến quét; quản lý từ nến sau (dừng lỗ xét trước mục tiêu).
     Kết quả theo R: dừng lỗ = -1R; về giá vào = 0R; dừng lỗ đã kéo theo lãi = +R tương ứng; đạt tối đa = +8R."""
     hi, lo, cl = (m15[k].to_numpy() for k in ("high", "low", "close"))
     t = m15.index
-    trades, pos, pend = [], None, None
-
-    def close_pos(i, r, reason, px):
-        trades.append({**{k: pos[k] for k in ("side", "entry", "be", "trail", "tp", "liq", "t_sig")}, "sl": pos["sl0"],
-                       "t_in": pos["t_in"], "t_out": t[i], "exit": float(px), "r": round(float(r), 2) + 0.0, "reason": reason})
-
+    trades, pos = [], None
     for i in range(start, len(m15)):
-        sig = 1 if buy[i] else -1 if sell[i] else 0
         if pos is not None:
             d = pos["d"]
             fav = d * ((hi[i] if d == 1 else lo[i]) - pos["entry"]) / pos["risk"]
-            hit_sl = (lo[i] <= pos["sl"]) if d == 1 else (hi[i] >= pos["sl"])
             res = None
-            if hit_sl:
+            if (lo[i] <= pos["sl"]) if d == 1 else (hi[i] >= pos["sl"]):
                 r = d * (pos["sl"] - pos["entry"]) / pos["risk"]
                 res = r, ("Dừng lỗ" if r < 0 else "Hoà vốn" if r == 0 else "Chạm SL đã kéo theo lãi"), pos["sl"]
             elif fav >= TP_R:
@@ -251,28 +280,17 @@ def backtest(m15, buy, sell, start=200):
                     nsl = pos["entry"] + d * (pos["mx"] - TRAIL_GAP) * pos["risk"]
                     if d * (nsl - pos["sl"]) > 0:
                         pos["sl"] = nsl
-                if sig == -d:
-                    res = d * (cl[i] - pos["entry"]) / pos["risk"], "Tín hiệu ngược chiều", cl[i]
             if res:
-                close_pos(i, *res)
+                trades.append({**{k: pos[k] for k in ("side", "entry", "be", "trail", "tp", "liq", "kind", "t_in")}, "sl": pos["sl0"],
+                               "t_out": t[i], "exit": float(res[2]), "r": round(float(res[0]), 2) + 0.0, "reason": res[1]})
                 pos = None
-                if not sig:
-                    continue
-        if pend is not None and pos is None:
-            d = pend["d"]
-            if i > pend["i"] + ENTRY_WAIT or sig == -d:
-                pend = None
-            elif (lo[i] <= pend["entry"]) if d == 1 else (hi[i] >= pend["entry"]):
-                pos = {**pend, "t_in": t[i], "mx": 0.0, "t1": False}
-                pend = None
-                if (lo[i] <= pos["sl"]) if d == 1 else (hi[i] >= pos["sl"]):
-                    close_pos(i, -1.0, "Dừng lỗ", pos["sl"])
-                    pos = None
-                continue
-        if pos is None and sig:
-            p = plan("MUA" if sig == 1 else "BÁN", i, m15)
-            pend = {**p, "d": sig, "i": i, "sl0": p["sl"], "t_sig": t[i]}
-    return trades, pos, pend
+            continue
+        if side[i]:
+            d, e, rk = int(side[i]), float(cl[i]), float(risk[i])
+            pos = {"d": d, "side": "MUA" if d == 1 else "BÁN", "entry": e, "risk": rk, "sl": e - d * rk, "sl0": e - d * rk,
+                   "be": e + d * BE_R * rk, "trail": e + d * TRAIL_START * rk, "tp": e + d * TP_R * rk,
+                   "liq": float(lvl[i]), "kind": str(kind[i]), "t_in": t[i], "mx": 0.0, "t1": False}
+    return trades, pos
 
 
 # ---------- Hệ 2: phá đỉnh/đáy 20 nến H1 theo xu hướng H4 ----------
@@ -393,6 +411,8 @@ def trade_out(x):
         o["t_sig"] = iso(x["t_sig"])
     if x.get("liq") is not None:
         o["liq"] = r2(x["liq"])
+    if x.get("kind"):
+        o["kind"] = x["kind"]
     if "t_out" in x:
         o.update(t_out=iso(x["t_out"]), exit=r2(x["exit"]), r=x["r"], reason=x["reason"])
     return o
@@ -414,8 +434,10 @@ def build(h1_raw, m15_raw, meta):
     h4tr_all, zone_all = h4.apply(trend_of, axis=1), h1_zones(h1)
     h4tr = closed_on(h4tr_all, H4, m15.index).fillna("Đi ngang")
     zone = closed_on(zone_all, H1, m15.index).fillna("")
-    buy, sell = setups(m15, h4tr, zone)
-    trades, pos, pend = backtest(m15, buy, sell)
+    side, wick, lvl, kind, risk, watch = setups(m15, h4tr, zone)
+    i_m = last_closed(m15, M15, now)
+    side[i_m + 1:] = 0  # nến M15 chưa đóng thì chưa có tín hiệu
+    trades, pos = backtest(m15, side, lvl, kind, risk)
 
     last = m15.iloc[-1]
     prev_day = d1["close"].iloc[-2] if len(d1) > 1 else last["close"]
@@ -423,34 +445,31 @@ def build(h1_raw, m15_raw, meta):
     if pos:
         d = pos["d"]
         open_pos = {**trade_out({**pos, "sl": pos["sl0"]}), "be_hit": bool(pos["t1"]), "trailing": bool(pos["mx"] >= TRAIL_START),
-                    "sl_now": r2(pos["sl"]), "id": f"{pos['side']}-{int(pos['t_sig'].timestamp())}",
+                    "sl_now": r2(pos["sl"]), "id": f"{pos['side']}-{int(pos['t_in'].timestamp())}",
                     "r_now": round(float(d * (last["close"] - pos["entry"]) / pos["risk"]), 2)}
-    pending = None
-    if pend:
-        pending = {**trade_out({**pend, "t_in": pend["t_sig"]}), "id": f"{pend['side']}-{int(pend['t_sig'].timestamp())}",
-                   "until": iso(pend["t_sig"] + (ENTRY_WAIT + 1) * M15)}
-    # Tín hiệu mới (lệnh chờ vừa đặt hoặc vừa khớp) trên 4 nến M15 đã đóng gần nhất
-    i_m = last_closed(m15, M15, now)
-    recent = m15.index[max(i_m - 3, 0)]
-    fresh = None
-    for x in (pending, open_pos):
-        if x and pd.Timestamp(x["t_sig"] + ":00+07:00") >= recent:
-            fresh = x
-            break
+    # Lệnh mới vào trong 4 nến M15 đã đóng gần nhất
+    fresh = open_pos if pos and pos["t_in"] >= m15.index[max(i_m - 3, 0)] else None
 
     i_h4, i_h1 = last_closed(h4, H4, now), last_closed(h1, H1, now)
     t4, z1 = trend_of(h4.iloc[i_h4]), zone_all.iloc[i_h1]
     lm = m15.iloc[i_m]
     m15_state = "Tăng" if lm["close"] > lm["ema20"] > lm["ema50"] else "Giảm" if lm["close"] < lm["ema20"] < lm["ema50"] else "Đi ngang"
-    if t4 == "Đi ngang":
+    piv = {"lo": r2(watch["lo"]), "hi": r2(watch["hi"])}
+    off = "Ngoài giờ vào lệnh (21h–3h giờ VN). " if (now + pd.Timedelta(hours=7)).hour in SKIP_HOURS_VN else ""
+    if open_pos:
+        status = f"Đang giữ lệnh {open_pos['side']} từ {open_pos['entry']} ({open_pos['kind']})."
+    elif t4 == "Đi ngang":
         status = "H4 đi ngang: đứng ngoài, chờ xu hướng rõ."
-    elif z1 != ("MUA" if t4 == "Tăng" else "BÁN"):
-        status = f"H4 {t4.lower()}: chờ giá H1 hồi về EMA20 để vào vùng {'MUA' if t4 == 'Tăng' else 'BÁN'}."
     else:
-        lv = lm["liq_lo"] if z1 == "MUA" else lm["liq_hi"]
-        status = (("Ngoài giờ vào lệnh (21h–3h giờ VN). " if (now + pd.Timedelta(hours=7)).hour in SKIP_HOURS_VN else "") +
-                  f"H4 {t4.lower()}, H1 đang ở vùng {z1}: chờ M15 quét {'đáy' if z1 == 'MUA' else 'đỉnh'} "
-                  f"{lv:.2f} rồi đóng cửa quay lại để vào lệnh.")
+        up = t4 == "Tăng"
+        w, pv = ("đáy", piv["lo"]) if up else ("đỉnh", piv["hi"])
+        parts = []
+        if z1 == ("MUA" if up else "BÁN"):
+            parts.append(f"quét {w} 20 nến {lm['liq_lo' if up else 'liq_hi']:.2f}")
+        if pv is not None and not (parts and abs(pv - lm['liq_lo' if up else 'liq_hi']) < 0.01):
+            parts.append(f"quét {w} cũ {pv:.2f} có phân kỳ RSI")
+        status = off + (f"H4 {t4.lower()}: chờ M15 " + " hoặc ".join(parts) + f" rồi đóng cửa quay lại để {'MUA' if up else 'BÁN'} ngay."
+                        if parts else f"H4 {t4.lower()}: chưa có {w} nào để chờ quét.")
     s = stats(trades)
     bo = bo_build(h1, h4tr_all, now)
     return {
@@ -459,8 +478,8 @@ def build(h1_raw, m15_raw, meta):
         "price": r2(last["close"]), "day_chg": r2(last["close"] / prev_day * 100 - 100),
         "rsi_m15": r2(lm["rsi"]), "rsi_h1": r2(h1["rsi"].iloc[i_h1]), "atr_m15": r2(lm["atr"]),
         "liq": {"lo": r2(lm["liq_lo"]), "hi": r2(lm["liq_hi"])}, "tf": {"H4": t4, "H1": z1 or "Chưa có vùng", "M15": m15_state}, "status": status,
-        "fresh": fresh, "open": open_pos, "pending": pending, "stats": s,
-        "rr": {"be": BE_R, "trail": TRAIL_START, "gap": TRAIL_GAP, "tp": TP_R, "pullback": ENTRY_PULLBACK, "wait": ENTRY_WAIT},
+        "piv": piv, "fresh": fresh, "open": open_pos, "stats": s,
+        "rr": {"be": BE_R, "trail": TRAIL_START, "gap": TRAIL_GAP, "tp": TP_R, "min_risk": MIN_RISK_USD, "max_risk": MAX_RISK_USD},
         "trades": [trade_out(x) for x in trades[-30:]][::-1],
         "bo": bo,
         "m15": bars(m15, CHART["m15"]), "h1": bars(h1, CHART["h1"]), "h4": bars(h4, CHART["h4"]),
@@ -478,10 +497,9 @@ def telegram(data, prev):
     f = data["fresh"]
     if f and f["id"] not in sent:
         icon = "🟢" if f["side"] == "MUA" else "🔴"
-        msgs.append((f["id"], f"{icon} XAUUSD đặt lệnh chờ {f['side']} LIMIT {f['entry']} (sau khi quét thanh khoản {f.get('liq')})\n"
+        msgs.append((f["id"], f"{icon} XAUUSD {f['side']} {f['entry']} (vào ngay) · {f.get('kind')} tại {f.get('liq')}\n"
                      f"Dừng lỗ: {f['sl']}\nTới {f['be']} (1:1): dời SL về giá vào\nTới {f.get('trail')} (1:{TRAIL_START:g}): kéo SL cách {TRAIL_GAP:g}R\n"
-                     f"Chốt tối đa (1:{TP_R:g}): {f['tp']}\nHiệu lực đến {f.get('until', '').replace('T', ' ')}\n"
-                     f"H4 {data['tf']['H4']} · H1 vùng {data['tf']['H1']} · M15 xác nhận. Không phải khuyến nghị đầu tư."))
+                     f"Chốt tối đa (1:{TP_R:g}): {f['tp']}\nH4 {data['tf']['H4']}. Không phải khuyến nghị đầu tư."))
     b = data.get("bo") or {}
     bf = b.get("fresh")
     if bf and bf["id"] not in sent:

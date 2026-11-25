@@ -5,10 +5,12 @@
 // Quy tắc (chỉ dùng nến khung lớn đã đóng):
 //   H4  xu hướng: Tăng khi giá > EMA50 > EMA200, Giảm khi ngược lại.
 //   H1  vùng: MUA khi EMA20 > EMA50, giá trên EMA50, đã chạm EMA20 trong 3 nến H1 gần nhất, RSI < 70 (BÁN ngược lại).
-//   M15 vào lệnh: nến (hiện tại hoặc trước) chọc thủng đáy 20 nến trước đó rồi nến hiện tại đóng cửa quay lại, nến tăng: MUA.
-//   Lọc chất lượng: MUA chỉ khi RSI M15 <= 50 (BÁN khi >= 50), bỏ nến mở từ 21h đến trước 3h giờ VN.
-//   Vào lệnh: đặt LỆNH CHỜ tại mức hồi 50% từ giá đóng cửa về râu nến quét, huỷ nếu 4 nến M15 chưa khớp.
-//   SL sau râu nến quét + 0,1 ATR, tối thiểu 15 giá, bỏ tín hiệu nếu cần hơn 20 giá.
+//   M15 vào lệnh NGAY ở giá đóng cửa nến quét thanh khoản (không chờ giá chạy), theo chiều H4, bỏ 21h–3h giờ VN:
+//     A. Quét đáy 20 nến: nến (hiện tại hoặc trước) chọc thủng đáy 20 nến trước đó, nến hiện tại đóng cửa quay lại
+//        và là nến tăng, H1 đang ở vùng MUA, RSI M15 <= 50: MUA.
+//     B. Quét 2–3 đáy + phân kỳ RSI: chọc thủng (không quá 0,6 ATR) một đáy xoay chiều cũ còn nguyên trong 24 giờ
+//        rồi đóng cửa quay lên, nến tăng, RSI tạo đáy cao hơn: MUA. BÁN ngược lại với đỉnh.
+//   SL sau râu nến quét + 0,1 ATR, tối thiểu 10 giá, bỏ tín hiệu nếu cần hơn 15 giá.
 //   Tới 1:1 dời SL về giá vào; từ 1:3 kéo SL luôn cách mức lãi cao nhất 1,5R; chốt hết ở 1:8.
 // Hệ 2 (song song): phá đỉnh/đáy 20 nến H1 theo H4, vào ngay, SL 2 ATR H1, cùng cách dời SL/kéo SL/chốt tối đa.
 // Tín hiệu tham khảo, không phải lời khuyên đầu tư.
@@ -17,14 +19,17 @@ indicator("Nhịp Vàng · H4 xu hướng · H1 vùng · M15 quét thanh khoản
 tpR       = input.float(8.0, "Chốt tối đa (R)", minval = 2, step = 0.5)
 trailAt   = input.float(3.0, "Bắt đầu kéo SL khi đạt (R)", minval = 1, step = 0.5)
 trailGap  = input.float(1.5, "Kéo SL cách mức lãi cao nhất (R)", minval = 0.5, step = 0.5)
-pullback  = input.float(0.5, "Lệnh chờ: hồi về râu nến quét (0 = vào ngay giá đóng cửa)", minval = 0, maxval = 0.9, step = 0.1)
-waitBars  = input.int(4, "Lệnh chờ hiệu lực (số nến M15)", minval = 1)
 beR       = input.float(1.0, "Dời SL về giá vào khi đạt (R)", minval = 0.5, step = 0.5)
 look      = input.int(20, "Số nến M15 tìm đáy/đỉnh thanh khoản", minval = 5)
-minRisk   = input.float(15, "SL tối thiểu (giá, quy về mức 3.850)")
-maxRisk   = input.float(20, "SL tối đa (giá, quy về mức 3.850)")
+minRisk   = input.float(10, "SL tối thiểu (giá, quy về mức 3.850)")
+maxRisk   = input.float(15, "SL tối đa (giá, quy về mức 3.850)")
 bufAtr    = input.float(0.1, "Đệm SL sau râu nến (ATR)", step = 0.05)
 rsiMax    = input.int(50, "Lọc: MUA khi RSI M15 ≤ (BÁN khi ≥ 100 − số này)", minval = 30, maxval = 100)
+usePat    = input.bool(true, "Kiểu B: quét 2–3 đáy/đỉnh + phân kỳ RSI")
+pivK      = 3
+pivWin    = input.int(96, "Kiểu B: tìm đáy/đỉnh cũ trong (số nến M15)", minval = 20)
+pivGap    = 5
+tolAtr    = input.float(0.6, "Kiểu B: quét sâu tối đa (ATR)", minval = 0.1, step = 0.1)
 useHours  = input.bool(true, "Lọc: bỏ vào lệnh từ 21h đến trước 3h (giờ VN)")
 showTable = input.bool(true, "Hiện bảng trạng thái")
 showHist  = input.bool(true, "Giữ vùng SL/TP của các lệnh đã đóng")
@@ -57,13 +62,120 @@ liqHi = ta.highest(high[2], look)
 wLo   = math.min(low, low[1])
 wHi   = math.max(high, high[1])
 sc    = close / 3850.0
-riskB = math.max(close - wLo + bufAtr * atr, minRisk * sc)
-riskS = math.max(wHi - close + bufAtr * atr, minRisk * sc)
 rsi15 = ta.rsi(close, 14)
 hVN   = hour(time, "Asia/Ho_Chi_Minh")
 hourOk = not useHours or not (hVN >= 21 or hVN < 3)
-buySig  = barstate.isconfirmed and hourOk and h4 == 1 and h1 == 1 and wLo < liqLo and close > liqLo and close > open and rsi15 <= rsiMax and riskB <= maxRisk * sc
-sellSig = barstate.isconfirmed and hourOk and h4 == -1 and h1 == -1 and wHi > liqHi and close < liqHi and close < open and rsi15 >= 100 - rsiMax and riskS <= maxRisk * sc
+// Kiểu A: quét đáy/đỉnh 20 nến trong vùng H1 cùng chiều H4
+aBuy  = h4 == 1 and h1 == 1 and wLo < liqLo and close > liqLo and close > open and rsi15 <= rsiMax
+aSell = h4 == -1 and h1 == -1 and wHi > liqHi and close < liqHi and close < open and rsi15 >= 100 - rsiMax
+
+// Kiểu B: quét đáy/đỉnh xoay chiều còn nguyên (2 đáy; có thêm đáy ngang bằng = 3 đáy) + phân kỳ RSI
+var array<int>   loI = array.new<int>()
+var array<float> loP = array.new<float>()
+var array<float> loR = array.new<float>()
+var array<float> loM = array.new<float>()   // giá thấp nhất từ sau đáy đến 2 nến trước nến hiện tại
+var array<int>   hiI = array.new<int>()
+var array<float> hiP = array.new<float>()
+var array<float> hiR = array.new<float>()
+var array<float> hiM = array.new<float>()
+isPL = bar_index >= 2 * pivK + 1 and low[pivK] == ta.lowest(low, 2 * pivK + 1)
+isPH = bar_index >= 2 * pivK + 1 and high[pivK] == ta.highest(high, 2 * pivK + 1)
+rsiP = rsi15[pivK]
+if isPL
+    array.push(loI, bar_index - pivK)
+    array.push(loP, low[pivK])
+    array.push(loR, rsiP)
+    array.push(loM, 1e10)
+if isPH
+    array.push(hiI, bar_index - pivK)
+    array.push(hiP, high[pivK])
+    array.push(hiR, rsiP)
+    array.push(hiM, -1e10)
+while array.size(loI) > 0 and bar_index - array.get(loI, 0) > pivWin
+    array.shift(loI)
+    array.shift(loP)
+    array.shift(loR)
+    array.shift(loM)
+while array.size(hiI) > 0 and bar_index - array.get(hiI, 0) > pivWin
+    array.shift(hiI)
+    array.shift(hiP)
+    array.shift(hiR)
+    array.shift(hiM)
+low2 = low[2]
+high2 = high[2]
+rsiLo = math.min(rsi15, rsi15[1])
+rsiHi = math.max(rsi15, rsi15[1])
+if array.size(loI) > 0
+    for k = 0 to array.size(loI) - 1
+        if bar_index - 2 > array.get(loI, k)
+            array.set(loM, k, math.min(array.get(loM, k), low2))
+if array.size(hiI) > 0
+    for k = 0 to array.size(hiI) - 1
+        if bar_index - 2 > array.get(hiI, k)
+            array.set(hiM, k, math.max(array.get(hiM, k), high2))
+tol = tolAtr * atr
+bDir = 0
+float bLvl = na
+int bCnt = 0
+bool bDiv = false
+if close > open and array.size(loI) > 0
+    int c1 = -1
+    for k = 0 to array.size(loI) - 1
+        p = array.get(loP, k)
+        if bar_index - array.get(loI, k) >= pivGap and array.get(loM, k) > p and wLo < p and p <= wLo + tol and close > p
+            if c1 < 0 or p < array.get(loP, c1)
+                c1 := k
+    if c1 >= 0
+        p1 = array.get(loP, c1)
+        peer = false
+        for k = 0 to array.size(loI) - 1
+            q = array.get(loP, k)
+            if array.get(loI, k) < array.get(loI, c1) and math.abs(q - p1) <= tol and array.get(loM, k) >= p1 - tol and q > wLo
+                peer := true
+        bDir := 1
+        bLvl := p1
+        bCnt := peer ? 3 : 2
+        bDiv := rsiLo > array.get(loR, c1)
+if bDir == 0 and close < open and array.size(hiI) > 0
+    int c1 = -1
+    for k = 0 to array.size(hiI) - 1
+        p = array.get(hiP, k)
+        if bar_index - array.get(hiI, k) >= pivGap and array.get(hiM, k) < p and wHi > p and p >= wHi - tol and close < p
+            if c1 < 0 or p > array.get(hiP, c1)
+                c1 := k
+    if c1 >= 0
+        p1 = array.get(hiP, c1)
+        peer = false
+        for k = 0 to array.size(hiI) - 1
+            q = array.get(hiP, k)
+            if array.get(hiI, k) < array.get(hiI, c1) and math.abs(q - p1) <= tol and array.get(hiM, k) <= p1 + tol and q < wHi
+                peer := true
+        bDir := -1
+        bLvl := p1
+        bCnt := peer ? 3 : 2
+        bDiv := rsiHi < array.get(hiR, c1)
+bOk = usePat and bDir != 0 and bDiv and bDir == h4
+
+sigDir0 = aBuy ? 1 : aSell ? -1 : bOk ? bDir : 0
+sigWick = sigDir0 == 1 ? wLo : wHi
+sigLvl  = aBuy ? liqLo : aSell ? liqHi : bLvl
+sigKind = aBuy ? "Quét đáy 20 nến" : aSell ? "Quét đỉnh 20 nến" : "Quét " + str.tostring(bCnt) + (bDir == 1 ? " đáy" : " đỉnh") + " + phân kỳ RSI"
+sigRisk = math.max(sigDir0 * (close - sigWick) + bufAtr * atr, minRisk * sc)
+sigDir  = barstate.isconfirmed and hourOk and sigDir0 != 0 and sigRisk <= maxRisk * sc ? sigDir0 : 0
+
+// Đáy/đỉnh cũ còn nguyên gần giá nhất (để theo dõi trên bảng)
+float watchLo = na
+float watchHi = na
+if array.size(loI) > 0
+    for k = 0 to array.size(loI) - 1
+        p = array.get(loP, k)
+        if math.min(array.get(loM, k), low, wLo) > p and p < close and (na(watchLo) or p > watchLo)
+            watchLo := p
+if array.size(hiI) > 0
+    for k = 0 to array.size(hiI) - 1
+        p = array.get(hiP, k)
+        if math.max(array.get(hiM, k), high, wHi) < p and p > close and (na(watchHi) or p < watchHi)
+            watchHi := p
 
 // ---------- Quản lý lệnh (giống engine/gold.py) ----------
 var int   pos    = 0
@@ -77,11 +189,7 @@ var float risk   = na
 var float mx     = 0.0
 var bool  t1     = false
 var bool  trailing = false
-var int   pdDir  = 0
-var float pE     = na
-var float pRisk  = na
-var int   pBar   = na
-var float pLiq   = na
+var string kindNow = ""
 var int   nWin   = 0
 var int   nBe    = 0
 var int   nLoss  = 0
@@ -95,18 +203,15 @@ var box   bxTp = na
 var line  lnEn = na
 var line  lnBe = na
 var line  lnTp = na
-var line  lnPd = na
 var label lbSl = na
 var label lbTr = na
 var label lbTp = na
 var label lbEn = na
 var label lbBe = na
-var label lbPd = na
 
-sigDir = buySig ? 1 : sellSig ? -1 : 0
 float exitR = na
 string why = ""
-bool filled = false
+bool busy = pos != 0   // đang giữ lệnh ở đầu nến này: không vào lệnh mới trong cùng nến
 if pos != 0
     fav = pos * ((pos == 1 ? high : low) - entry) / risk
     hitSl = pos == 1 ? low <= sl : high >= sl
@@ -129,44 +234,6 @@ if pos != 0
                     alert("XAUUSD: lệnh " + sideTxt(pos) + " đạt 1:" + str.tostring(trailAt) + " tại " + f(trl) + ", bắt đầu kéo dừng lỗ", alert.freq_once_per_bar)
                 trailing := true
                 sl := nsl
-        if sigDir == -pos
-            exitR := pos * (close - entry) / risk
-            why := "Tín hiệu ngược chiều"
-else if pdDir != 0
-    if bar_index > pBar + waitBars or sigDir == -pdDir
-        pdDir := 0
-        line.delete(lnPd)
-        label.delete(lbPd)
-    else if pdDir == 1 ? low <= pE : high >= pE
-        filled := true
-        pos   := pdDir
-        entry := pE
-        risk  := pRisk
-        sl    := entry - pos * risk
-        sl0   := sl
-        be    := entry + pos * beR * risk
-        trl   := entry + pos * trailAt * risk
-        tp    := entry + pos * tpR * risk
-        mx    := 0.0
-        t1    := false
-        trailing := false
-        pdDir := 0
-        line.delete(lnPd)
-        label.delete(lbPd)
-        alert("XAUUSD: lệnh chờ " + sideTxt(pos) + " ĐÃ KHỚP tại " + f(entry) + " | SL " + f(sl) + " | Hoà vốn tại " + f(be) + " | Kéo SL từ " + f(trl) + " | Tối đa " + f(tp), alert.freq_once_per_bar)
-        bxSl := box.new(bar_index, math.max(entry, sl), bar_index + 1, math.min(entry, sl), border_color = cDn, bgcolor = color.new(cDn, 82))
-        bxTp := box.new(bar_index, math.max(entry, trl), bar_index + 1, math.min(entry, trl), border_color = cUp, bgcolor = color.new(cUp, 82))
-        lnEn := line.new(bar_index, entry, bar_index + 1, entry, color = color.gray, width = 2)
-        lnBe := line.new(bar_index, be, bar_index + 1, be, color = color.new(color.gray, 30), style = line.style_dashed)
-        lnTp := line.new(bar_index, tp, bar_index + 1, tp, color = cUp, style = line.style_dashed)
-        lbSl := label.new(bar_index + 1, sl, "", style = label.style_label_left, color = cDn, textcolor = color.white, size = size.small)
-        lbTr := label.new(bar_index + 1, trl, "", style = label.style_label_left, color = cUp, textcolor = color.white, size = size.small)
-        lbTp := label.new(bar_index + 1, tp, "", style = label.style_label_left, color = color.new(cUp, 30), textcolor = color.white, size = size.small)
-        lbEn := label.new(bar_index + 1, entry, "", style = label.style_label_left, color = color.gray, textcolor = color.white, size = size.small)
-        lbBe := label.new(bar_index + 1, be, "", style = label.style_label_left, color = color.new(color.gray, 40), textcolor = color.white, size = size.small)
-        if pos == 1 ? low <= sl : high >= sl
-            exitR := -1.0
-            why := "Chạm dừng lỗ (ngay nến khớp)"
 
 if not na(exitR)
     nWin  += exitR > 0 ? 1 : 0
@@ -191,21 +258,34 @@ if not na(exitR)
         line.delete(lnEn)
     pos := 0
 
-// Tín hiệu mới: đặt lệnh chờ (thay lệnh chờ cũ nếu có)
-bool newPend = false
-if sigDir != 0 and pos == 0 and not filled
-    newPend := true
-    wick = sigDir == 1 ? wLo : wHi
-    pdDir := sigDir
-    pE    := close - pullback * (close - wick)
-    pRisk := math.max(sigDir * (pE - wick) + bufAtr * atr, minRisk * sc)
-    pBar  := bar_index
-    pLiq  := sigDir == 1 ? liqLo : liqHi
-    line.delete(lnPd)
-    label.delete(lbPd)
-    lnPd := line.new(bar_index, pE, bar_index + waitBars + 1, pE, color = sigDir == 1 ? cUp : cDn, width = 2, style = line.style_dotted)
-    lbPd := label.new(bar_index + waitBars + 1, pE, (sigDir == 1 ? "BUY" : "SELL") + " LIMIT " + f(pE) + "  · SL " + f(pE - sigDir * pRisk), style = label.style_label_left, color = sigDir == 1 ? cUp : cDn, textcolor = color.white, size = size.small)
-    alert("XAUUSD ĐẶT LỆNH CHỜ " + sideTxt(sigDir) + " LIMIT " + f(pE) + " | Thanh khoản bị quét " + f(pLiq) + " | SL " + f(pE - sigDir * pRisk) + " | Hoà vốn tại " + f(pE + sigDir * beR * pRisk) + " | Kéo SL từ " + f(pE + sigDir * trailAt * pRisk) + " | Tối đa 1:" + str.tostring(tpR) + " " + f(pE + sigDir * tpR * pRisk) + " | Huỷ nếu " + str.tostring(waitBars) + " nến M15 chưa khớp", alert.freq_once_per_bar_close)
+// Tín hiệu mới: VÀO NGAY ở giá đóng cửa nến quét
+bool opened = false
+if sigDir != 0 and pos == 0 and not busy
+    opened := true
+    pos   := sigDir
+    entry := close
+    risk  := sigRisk
+    sl    := entry - pos * risk
+    sl0   := sl
+    be    := entry + pos * beR * risk
+    trl   := entry + pos * trailAt * risk
+    tp    := entry + pos * tpR * risk
+    mx    := 0.0
+    t1    := false
+    trailing := false
+    kindNow := sigKind
+    alert("XAUUSD " + sideTxt(pos) + " NGAY " + f(entry) + " | " + sigKind + " tại " + f(sigLvl) + " | SL " + f(sl) + " (−" + f(risk) + ") | Hoà vốn tại " + f(be) + " | Kéo SL từ " + f(trl) + " | Tối đa 1:" + str.tostring(tpR) + " " + f(tp), alert.freq_once_per_bar_close)
+    bxSl := box.new(bar_index, math.max(entry, sl), bar_index + 1, math.min(entry, sl), border_color = cDn, bgcolor = color.new(cDn, 82))
+    bxTp := box.new(bar_index, math.max(entry, trl), bar_index + 1, math.min(entry, trl), border_color = cUp, bgcolor = color.new(cUp, 82))
+    lnEn := line.new(bar_index, entry, bar_index + 1, entry, color = color.gray, width = 2)
+    lnBe := line.new(bar_index, be, bar_index + 1, be, color = color.new(color.gray, 30), style = line.style_dashed)
+    lnTp := line.new(bar_index, tp, bar_index + 1, tp, color = cUp, style = line.style_dashed)
+    lbSl := label.new(bar_index + 1, sl, "", style = label.style_label_left, color = cDn, textcolor = color.white, size = size.small)
+    lbTr := label.new(bar_index + 1, trl, "", style = label.style_label_left, color = cUp, textcolor = color.white, size = size.small)
+    lbTp := label.new(bar_index + 1, tp, "", style = label.style_label_left, color = color.new(cUp, 30), textcolor = color.white, size = size.small)
+    lbEn := label.new(bar_index + 1, entry, "", style = label.style_label_left, color = color.gray, textcolor = color.white, size = size.small)
+    lbBe := label.new(bar_index + 1, be, "", style = label.style_label_left, color = color.new(color.gray, 40), textcolor = color.white, size = size.small)
+    line.new(bar_index - 6, sigLvl, bar_index, sigLvl, color = pos == 1 ? cUp : cDn, style = line.style_dotted)
 
 // Lệnh đang mở: kéo dài vùng màu và cập nhật nhãn ở mép phải
 if pos != 0
@@ -222,20 +302,20 @@ if pos != 0
     label.set_xy(lbSl, x, sl)
     label.set_text(lbSl, (trailing ? "SL ĐANG KÉO " : t1 ? "SL ĐÃ VỀ GIÁ VÀO " : "DỪNG LỖ ") + f(sl) + (t1 or trailing ? "" : "  (−" + f(math.abs(entry - sl)) + ")"))
     label.set_xy(lbEn, x, entry)
-    label.set_text(lbEn, sideTxt(pos) + " " + f(entry))
+    label.set_text(lbEn, sideTxt(pos) + " " + f(entry) + " · " + kindNow)
     label.set_xy(lbBe, x, be)
     label.set_text(lbBe, t1 ? "Đã đạt 1:1 ✓" : "Dời SL hoà vốn " + f(be) + " (1:1)")
     if t1
         line.set_color(lnBe, color.new(cUp, 30))
 
 // ---------- Vẽ ----------
-plotshape(newPend and pdDir == 1, "Tín hiệu MUA", shape.triangleup, location.belowbar, cUp, size = size.small, text = "MUA")
-plotshape(newPend and pdDir == -1, "Tín hiệu BÁN", shape.triangledown, location.abovebar, cDn, size = size.small, text = "BÁN")
-plotshape(filled and pos == 1, "Khớp MUA", shape.circle, location.belowbar, cUp, size = size.tiny)
-plotshape(filled and pos == -1, "Khớp BÁN", shape.circle, location.abovebar, cDn, size = size.tiny)
+plotshape(opened and pos == 1 and aBuy, "MUA · quét đáy 20 nến", shape.triangleup, location.belowbar, cUp, size = size.small, text = "MUA")
+plotshape(opened and pos == -1 and aSell, "BÁN · quét đỉnh 20 nến", shape.triangledown, location.abovebar, cDn, size = size.small, text = "BÁN")
+plotshape(opened and pos == 1 and not aBuy, "MUA · 2–3 đáy + phân kỳ", shape.triangleup, location.belowbar, cUp, size = size.small, text = "MUA\n2-3 đáy")
+plotshape(opened and pos == -1 and not aSell, "BÁN · 2–3 đỉnh + phân kỳ", shape.triangledown, location.abovebar, cDn, size = size.small, text = "BÁN\n2-3 đỉnh")
 plot(pos != 0 ? sl : na, "Dừng lỗ (kéo theo)", cDn, 2, plot.style_linebr)
-alertcondition(newPend and pdDir == 1, "Nhịp Vàng đặt lệnh chờ MUA", "XAUUSD BUY LIMIT")
-alertcondition(newPend and pdDir == -1, "Nhịp Vàng đặt lệnh chờ BÁN", "XAUUSD SELL LIMIT")
+alertcondition(opened and pos == 1, "Nhịp Vàng MUA", "XAUUSD MUA ngay sau khi quét thanh khoản")
+alertcondition(opened and pos == -1, "Nhịp Vàng BÁN", "XAUUSD BÁN ngay sau khi quét thanh khoản")
 
 // ---------- Hệ 2: phá đỉnh/đáy 20 nến H1 theo xu hướng H4 (chạy song song, dùng chung cảnh báo) ----------
 // Nến H1 đóng cửa trên đỉnh 20 nến H1 trước đó khi H4 tăng: MUA ngay (BÁN ngược lại). SL 2 ATR H1.
@@ -327,7 +407,7 @@ plot(bPos != 0 ? bSl : na, "Hệ 2 dừng lỗ", cBo, 2, plot.style_linebr)
 plot(bPos != 0 ? bE : na, "Hệ 2 giá vào", color.new(cBo, 50), 1, plot.style_linebr)
 plot(bPos != 0 ? bTp : na, "Hệ 2 tối đa", color.new(cBo, 60), 1, plot.style_linebr)
 
-var table tb = table.new(position.top_right, 2, 9, bgcolor = color.new(color.black, 20), border_width = 1)
+var table tb = table.new(position.top_right, 2, 10, bgcolor = color.new(color.black, 20), border_width = 1)
 if showTable and barstate.islast
     t = (h4 == 1 ? "Tăng" : h4 == -1 ? "Giảm" : "Đi ngang")
     z = (h1 == 1 ? "Vùng MUA" : h1 == -1 ? "Vùng BÁN" : "Chưa có vùng")
@@ -337,7 +417,7 @@ if showTable and barstate.islast
     table.cell(tb, 0, 1, "H1 vùng", text_color = color.white, text_size = size.small)
     table.cell(tb, 1, 1, z, text_color = h1 == 1 ? color.lime : h1 == -1 ? color.red : color.silver, text_size = size.small)
     table.cell(tb, 0, 2, "Lệnh", text_color = color.white, text_size = size.small)
-    table.cell(tb, 1, 2, pos != 0 ? sideTxt(pos) + " " + f(entry) + (trailing ? " (đang kéo SL)" : t1 ? " (SL ở giá vào)" : "") : pdDir != 0 ? "Chờ khớp " + (pdDir == 1 ? "BUY" : "SELL") + " LIMIT " + f(pE) : "Chờ tín hiệu", text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 2, pos != 0 ? sideTxt(pos) + " " + f(entry) + " · " + kindNow + (trailing ? " (đang kéo SL)" : t1 ? " (SL ở giá vào)" : "") : "Chờ tín hiệu", text_color = color.white, text_size = size.small)
     table.cell(tb, 0, 3, "SL · tối đa", text_color = color.white, text_size = size.small)
     table.cell(tb, 1, 3, pos == 0 ? "–" : f(sl) + " · " + f(tp), text_color = color.white, text_size = size.small)
     table.cell(tb, 0, 4, "Thắng/hoà/thua", text_color = color.white, text_size = size.small)
@@ -350,4 +430,6 @@ if showTable and barstate.islast
     table.cell(tb, 0, 7, "Hệ 2 lệnh", text_color = color.white, text_size = size.small)
     table.cell(tb, 1, 7, not useBo ? "Tắt" : bPos != 0 ? sideTxt(bPos) + " " + f(bE) + " · SL " + f(bSl) : h4 == 1 ? "Chờ H1 đóng > " + f(hHi) : h4 == -1 ? "Chờ H1 đóng < " + f(hLo) : "H4 đi ngang", text_color = cBo, text_size = size.small)
     table.cell(tb, 0, 8, "Hệ 2 thống kê", text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 9, "Đáy · đỉnh cũ chờ quét", text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 9, (na(watchLo) ? "–" : f(watchLo)) + " · " + (na(watchHi) ? "–" : f(watchHi)), text_color = color.white, text_size = size.small)
     table.cell(tb, 1, 8, str.tostring(bW) + "/" + str.tostring(bB) + "/" + str.tostring(bL) + " · " + str.tostring(bTot, "#.#") + "R (" + str.tostring(bn) + " lệnh)", text_color = bTot >= 0 ? color.lime : color.red, text_size = size.small)
