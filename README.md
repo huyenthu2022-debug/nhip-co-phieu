@@ -33,13 +33,17 @@ cd web && python -m http.server 8000
 ## Vàng XAUUSD
 
 Tab **Vàng XAUUSD** báo điểm MUA/BÁN theo hệ 3 khung: H4 xác định xu hướng (giá > EMA50 > EMA200 là tăng),
-H1 xem xét vùng hồi (EMA20 > EMA50 và giá vừa chạm EMA20), M15 vào lệnh sau khi giá quét thanh khoản: chọc thủng
-đáy (đỉnh) thấp nhất của 20 nến M15 trước đó rồi đóng cửa quay lại bằng nến cùng chiều lệnh. Dừng lỗ sau râu nến
-quét, 15–20 giá (bỏ tín hiệu nếu cần rộng hơn 20 giá). Lọc chất lượng: MUA chỉ khi RSI M15 ≤ 50 (BÁN khi ≥ 50) và bỏ
-nến mở từ 21h đến trước 3h giờ VN. Vào lệnh bằng **lệnh chờ** tại mức hồi 50% từ giá đóng cửa về râu nến quét (huỷ nếu
-4 nến M15 chưa khớp). Tới 1:1 dời dừng lỗ về giá vào; từ 1:3 kéo dừng lỗ luôn cách mức lãi cao nhất 1,5R; chốt hết ở 1:8.
-Kiểm định 2 năm nến M15 PAXG/USDT: 101 lệnh, thua 35%, hoà 39%, thắng 27% với lệnh thắng trung bình +3,9R; +0,70R mỗi lệnh,
-hệ số lợi nhuận 3,01, sụt giảm lớn nhất 6,4R (vào ngay giá đóng cửa, chốt cố định 1:3: 148 lệnh, +0,37R, hệ số 1,93).
+H1 xem xét vùng hồi (EMA20 > EMA50 và giá vừa chạm EMA20). M15 **vào lệnh ngay ở giá đóng cửa nến quét thanh khoản**,
+không chờ giá chạy xa, theo chiều H4, bỏ nến mở từ 21h đến trước 3h giờ VN. Hai kiểu điểm vào:
+A. **Quét đáy (đỉnh) 20 nến**: chọc thủng đáy thấp nhất của 20 nến M15 trước đó rồi đóng cửa quay lại bằng nến cùng chiều
+lệnh, khi H1 đang ở vùng MUA (BÁN) và RSI M15 ≤ 50 (≥ 50).
+B. **Quét 2–3 đáy (đỉnh) + phân kỳ RSI**: chọc thủng không quá 0,6 ATR một đáy xoay chiều cũ còn nguyên trong 24 giờ
+(có thêm đáy ngang bằng là 3 đáy) rồi đóng cửa quay lại, RSI ở nến quét cao hơn RSI ở đáy cũ.
+Dừng lỗ sát râu nến quét + 0,1 ATR, **10–15 giá** (bỏ tín hiệu nếu cần rộng hơn 15 giá). Tới 1:1 dời dừng lỗ về giá vào;
+từ 1:3 kéo dừng lỗ luôn cách mức lãi cao nhất 1,5R; chốt hết ở 1:8.
+Kiểm định 2 năm nến M15 PAXG/USDT, đã trừ phí chênh lệch 0,35 giá: 233 lệnh (10 lệnh/tháng), thắng 28%, hoà 29%, thua 43%,
+lệnh thắng trung bình +3,4R; +0,48R mỗi lệnh, hệ số lợi nhuận 2,07, sụt giảm lớn nhất 11,5R, 8/9 quý có lãi.
+60 ngày GC=F: 31 lệnh, +0,58R mỗi lệnh. Bản trước (lệnh chờ hồi 50%, SL 15–20): 101 lệnh, +0,70R, sụt giảm 6,4R nhưng vào muộn.
 **Hệ 2 (song song): phá đỉnh/đáy 20 nến H1 theo H4.** Nến H1 đóng cửa trên đỉnh (dưới đáy) 20 nến H1 trước đó cùng chiều
 xu hướng H4 thì vào ngay; dừng lỗ 2 ATR H1; cùng cách dời SL/kéo SL/chốt tối đa 1:8. Đứng đầu khi so 12 phương pháp:
 2 năm PAXG 167 lệnh, +0,70R mỗi lệnh, hệ số 2,61; kiểm chứng 2 năm GC=F 150 lệnh, +0,53R, hệ số 2,18.
